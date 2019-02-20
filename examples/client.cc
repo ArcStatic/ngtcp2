@@ -30,6 +30,7 @@
 #include <memory>
 #include <fstream>
 
+
 #include <unistd.h>
 #include <getopt.h>
 #include <sys/types.h>
@@ -307,6 +308,25 @@ BIO_METHOD *create_bio_method() {
 } // namespace
 
 namespace {
+void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
+  //ev_io_stop(loop, w);
+
+  auto c = static_cast<Client *>(w->data);
+  
+  c->rtp_seqnum_ += 1;
+  //50fps, assume sampling rate of 8000Hz
+  c->rtp_timestamp_ += 160;
+  
+  //std::cerr << "RTP CALLBACK, seq: "  << (c->rtp_seqnum_) << ", ts: " << (c->rtp_timestamp_) << std::endl;
+
+  c->send_rtp();
+
+  return;
+  
+}
+} // namespace
+
+namespace {
 void writecb(struct ev_loop *loop, ev_io *w, int revents) {
   ev_io_stop(loop, w);
 
@@ -440,25 +460,31 @@ Client::Client(struct ev_loop *loop, SSL_CTX *ssl_ctx)
       sendbuf_{NGTCP2_MAX_PKTLEN_IPV4},
       last_stream_id_(UINT64_MAX),
       nstreams_done_(0),
-      nkey_update_(0),
       version_(0),
       tls_alert_(0),
-      resumption_(false) {
+      resumption_(false),
+      //TODO make this randomised - RTP spec doesn't allow this to start from 0
+      rtp_timestamp_(0),
+      rtp_seqnum_(0) {
+  //IMPORTANT - callback stuff
   ev_io_init(&wev_, writecb, 0, EV_WRITE);
   ev_io_init(&rev_, readcb, 0, EV_READ);
   ev_io_init(&stdinrev_, stdin_readcb, 0, EV_READ);
+  //CUSTOM CB
+  //ev_io_init(&rtpwev_, write_rtp_cb, 0, EV_WRITE);
   wev_.data = this;
   rev_.data = this;
   stdinrev_.data = this;
+  //rtpwev_.data = this;
   ev_timer_init(&timer_, timeoutcb, 0., config.timeout);
   timer_.data = this;
   ev_timer_init(&rttimer_, retransmitcb, 0., 0.);
   rttimer_.data = this;
-  ev_timer_init(&change_local_addr_timer_, change_local_addrcb,
-                config.change_local_addr, 0.);
-  change_local_addr_timer_.data = this;
-  ev_timer_init(&key_update_timer_, key_updatecb, config.key_update, 0.);
-  key_update_timer_.data = this;
+  //CUSTOM RTP TIMER
+  //CHANGE REPEAT TO 1/50 LATER!!
+  //trigger 1s after init, repeat every 1/50 s
+  ev_timer_init(&rtptimer_, write_rtp_cb, 1.0, (1.0/50.0));
+  rtptimer_.data = this;
   ev_signal_init(&sigintev_, siginthandler, SIGINT);
 }
 
@@ -1989,6 +2015,89 @@ int Client::stop_interactive_input() {
   return 0;
 }
 
+
+//CUSTOM ADDED FUNCTIONS
+//create a stream for RTP and RTCP
+int Client::start_rtp() {
+  //return value
+  int rv;
+
+  std::cerr << "RTP session started."
+            << std::endl;
+            
+  uint64_t stream_id;
+
+  //create bidirectional stream
+  rv = ngtcp2_conn_open_bidi_stream(conn_, &stream_id, nullptr);
+  if (rv != 0) {
+    std::cerr << "ngtcp2_conn_open_bidi_stream: " << ngtcp2_strerror(rv)
+              << std::endl;
+    if (rv == NGTCP2_ERR_STREAM_ID_BLOCKED) {
+      return 0;
+    }
+    return -1;
+  }
+
+  std::cerr << "The stream " << stream_id << " has opened for RTP." << std::endl;
+
+  //update most recently used stream ID
+  last_stream_id_ = stream_id;
+
+  //create a stream
+  auto stream = std::make_unique<Stream>(stream_id);
+
+  //vector which stream is moved to at position stream_id
+  streams_.emplace(stream_id, std::move(stream));
+  
+  //RTP TIMER START
+  //this is likely better moved somewhere else, probably in run
+  ev_timer_start (loop_, &rtptimer_);
+  //ev_feed_event(loop_, &wev_, EV_WRITE);
+
+  return 0;
+}
+
+int Client::send_rtp() {
+  std::cerr << "RTP function started" << std::endl;
+  ssize_t nread;
+  
+  int rv;
+
+  //retrieve last stream created
+  //auto &rtp_stream = streams_[stream_id];
+  auto &rtp_stream = streams_[last_stream_id_];
+  
+  //append data to the stream buffer
+  std::cerr << "writing to RTP stream..." << std::endl;
+  static constexpr uint8_t hw[] = "Test RTP data!";
+  rtp_stream->streambuf.emplace_back(hw, str_size(hw));
+  std::cerr << "RTP stream written" << std::endl;
+  
+  //set write event
+  ev_feed_event(loop_, &wev_, EV_WRITE);
+
+  return 0;
+}
+
+int Client::stop_rtp() {
+  assert(!streams_.empty());
+
+  auto &stream = (*std::begin(streams_)).second;
+
+  stream->should_send_fin = true;
+  if (stream->streambuf.empty()) {
+    stream->streambuf.emplace_back();
+  }
+
+  std::cerr << "RTP session has ended." << std::endl;
+
+  ev_feed_event(loop_, &wev_, EV_WRITE);
+
+  return 0;
+}
+//END OF CUSTOM ADDED FUNCTIONS
+
+
 int Client::handle_error(int liberr) {
   if (!conn_ || ngtcp2_conn_is_in_closing_period(conn_)) {
     return 0;
@@ -2163,11 +2272,17 @@ void Client::make_stream_early() {
 int Client::on_extend_max_streams() {
   int rv;
 
-  if (config.interactive) {
+  if (config.interactive || config.rtp) {
+  //if (config.interactive) {
     if (last_stream_id_ != UINT64_MAX) {
       return 0;
     }
-    if (start_interactive_input() != 0) {
+    //INPUT STARTS HERE!
+    //do custom rtp function here
+    //if (start_interactive_input() != 0) {
+    //if (send_rtp() != 0) {
+    if (start_rtp() != 0) {
+      //this->start_wev();
       return -1;
     }
 
@@ -2486,20 +2601,6 @@ Options:
               Read/write QUIC transport parameters from/to <PATH>.  To
               send 0-RTT data, the  transport parameters received from
               the previous session must be supplied with this option.
-  --dcid=<DCID>
-              Specify  initial  DCID.   <DCID> is  hex  string.   When
-              decoded as binary, it should be  at least 8 bytes and at
-              most 18 bytes long.
-  --change-local-addr=<T>
-              Client  changes local  address when  <T> seconds  elapse
-              after handshake completes.
-  --net-rebinding
-              When   used  with   --change-local-addr,  simulate   NAT
-              rebinding.   In   other  words,  client   changes  local
-              address, but it does not start path validation.
-  --key-update=<T>
-              Client  initiates key  update  when  <T> seconds  elapse
-              after handshake completes.
   -h, --help  Display this help and exit.
 )";
 }
@@ -2519,6 +2620,10 @@ int main(int argc, char **argv) {
         {"data", required_argument, nullptr, 'd'},
         {"nstreams", required_argument, nullptr, 'n'},
         {"version", required_argument, nullptr, 'v'},
+        //
+        //CUSTOM ADDED ARG
+        {"rtp", no_argument, nullptr, 'e'},
+        //
         {"quiet", no_argument, nullptr, 'q'},
         {"show-secret", no_argument, nullptr, 's'},
         {"ciphers", required_argument, &flag, 1},
@@ -2526,15 +2631,12 @@ int main(int argc, char **argv) {
         {"timeout", required_argument, &flag, 3},
         {"session-file", required_argument, &flag, 4},
         {"tp-file", required_argument, &flag, 5},
-        {"dcid", required_argument, &flag, 6},
-        {"change-local-addr", required_argument, &flag, 7},
-        {"key-update", required_argument, &flag, 8},
-        {"nat-rebinding", no_argument, &flag, 9},
         {nullptr, 0, nullptr, 0},
     };
 
     auto optidx = 0;
-    auto c = getopt_long(argc, argv, "d:hin:qr:st:v:", long_opts, &optidx);
+    //Why is this string split into sections?
+    auto c = getopt_long(argc, argv, "d:hin:eqr:st:v:", long_opts, &optidx);
     if (c == -1) {
       break;
     }
@@ -2576,6 +2678,11 @@ int main(int argc, char **argv) {
       // --version
       config.version = strtol(optarg, nullptr, 16);
       break;
+    //CUSTOM ADDED OPTION
+    case 'e':
+      // --rtp mode
+      config.rtp = true;
+      break;
     case '?':
       print_usage();
       exit(EXIT_FAILURE);
@@ -2601,31 +2708,6 @@ int main(int argc, char **argv) {
         // --tp-file
         config.tp_file = optarg;
         break;
-      case 6: {
-        // --dcid
-        auto dcidlen2 = strlen(optarg);
-        if (dcidlen2 % 2 || dcidlen2 / 2 < 8 || dcidlen2 / 2 > 18) {
-          std::cerr << "dcid: wrong length" << std::endl;
-          exit(EXIT_FAILURE);
-        }
-        auto dcid = util::decode_hex(optarg);
-        ngtcp2_cid_init(&config.dcid,
-                        reinterpret_cast<const uint8_t *>(dcid.c_str()),
-                        dcid.size());
-        break;
-      }
-      case 7:
-        // --change-local-addr
-        config.change_local_addr = strtol(optarg, nullptr, 10);
-        break;
-      case 8:
-        // --key-update
-        config.key_update = strtol(optarg, nullptr, 10);
-        break;
-      case 9:
-        // --nat-rebinding
-        config.nat_rebinding = true;
-        break;
       }
       break;
     default:
@@ -2639,9 +2721,9 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
   }
 
-  if (data_path && config.interactive) {
+  if (data_path && config.rtp && config.interactive) {
     std::cerr
-        << "interactive, data: Exclusive options are specified at the same time"
+        << "interactive, rtp, data: Exclusive options are specified at the same time"
         << std::endl;
     exit(EXIT_FAILURE);
   }

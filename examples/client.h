@@ -59,6 +59,9 @@ struct Config {
   const char *groups;
   // interactive is true if interactive input mode is on.
   bool interactive;
+  //CUSTOM ADDED FIELD
+  // rtp is true if rtp sending mode is on.
+  bool rtp;
   // nstreams is the number of streams to open.
   size_t nstreams;
   // data is the pointer to memory region which maps file denoted by
@@ -203,6 +206,11 @@ public:
   int start_interactive_input();
   int send_interactive_input();
   int stop_interactive_input();
+  //CUSTOM ADDED FUNCTIONS
+  int start_rtp();
+  int send_rtp();
+  int stop_rtp();
+  //END OF CUSTOM ADDED FUNCTIONS
   void remove_tx_crypto_data(uint64_t offset, size_t datalen);
   int remove_tx_stream_data(uint64_t stream_id, uint64_t offset,
                             size_t datalen);
@@ -220,6 +228,10 @@ public:
   int on_key(int name, const uint8_t *secret, size_t secretlen);
 
   void set_tls_alert(uint8_t alert);
+  
+  // RTP timestamp and sequence numbers
+  int rtp_timestamp_;
+  int rtp_seqnum_;
 
 private:
   Address local_addr_;
@@ -230,6 +242,7 @@ private:
   ev_io stdinrev_;
   ev_timer timer_;
   ev_timer rttimer_;
+  ev_timer rtptimer_;
   ev_timer change_local_addr_timer_;
   ev_timer key_update_timer_;
   ev_signal sigintev_;
@@ -269,5 +282,6 @@ private:
   // resumption_ is true if client attempts to resume session.
   bool resumption_;
 };
+
 
 #endif // CLIENT_H
