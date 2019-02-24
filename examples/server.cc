@@ -494,7 +494,7 @@ int Stream::map_file(size_t len) {
 
 void Stream::buffer_file() {
   streambuf.emplace_back(data, data + datalen);
-  should_send_fin = true;
+  //should_send_fin = true;
 }
 
 void Stream::send_status_response(unsigned int status_code,
@@ -530,8 +530,9 @@ void Stream::send_status_response(unsigned int status_code,
   }
   v.push(std::distance(std::begin(v.buf), p));
   streambuf.emplace_back(std::move(v));
-  should_send_fin = true;
-  resp_state = RESP_COMPLETED;
+  //should_send_fin = true;
+  //resp_state = RESP_COMPLETED;
+  resp_state = RESP_IDLE;
 }
 
 void Stream::send_redirect_response(unsigned int status_code,
@@ -597,11 +598,12 @@ int Stream::start_response() {
     streambuf.emplace_back(std::move(v));
   }
 
-  resp_state = RESP_COMPLETED;
+  //resp_state = RESP_COMPLETED;
+  resp_state = RESP_IDLE;
 
   switch (htp.method) {
   case HTTP_HEAD:
-    should_send_fin = true;
+    //should_send_fin = true;
     close(fd);
     fd = -1;
     break;
@@ -1788,14 +1790,14 @@ int Handler::recv_stream_data(uint64_t stream_id, uint8_t fin,
   if (stream->recv_data(fin, data, datalen) != 0) {
     if (stream->resp_state == RESP_IDLE) {
       stream->send_status_response(400);
-      rv = ngtcp2_conn_shutdown_stream_read(conn_, stream_id, NGTCP2_APP_PROTO);
+      //rv = ngtcp2_conn_shutdown_stream_read(conn_, stream_id, NGTCP2_APP_PROTO);
       if (rv != 0) {
         std::cerr << "ngtcp2_conn_shutdown_stream_read: " << ngtcp2_strerror(rv)
                   << std::endl;
         return -1;
       }
     } else {
-      rv = ngtcp2_conn_shutdown_stream(conn_, stream_id, NGTCP2_APP_PROTO);
+      //rv = ngtcp2_conn_shutdown_stream(conn_, stream_id, NGTCP2_APP_PROTO);
       if (rv != 0) {
         std::cerr << "ngtcp2_conn_shutdown_stream: " << ngtcp2_strerror(rv)
                   << std::endl;
@@ -1923,7 +1925,7 @@ int Handler::remove_tx_stream_data(uint64_t stream_id, uint64_t offset,
   auto &stream = (*it).second;
   ::remove_tx_stream_data(stream->streambuf, stream->streambuf_idx,
                           stream->tx_stream_offset, offset + datalen);
-
+  
   if (stream->streambuf.empty() && stream->resp_state == RESP_COMPLETED) {
     rv = ngtcp2_conn_shutdown_stream_read(conn_, stream_id, NGTCP2_APP_NOERROR);
     if (rv != 0 && rv != NGTCP2_ERR_STREAM_NOT_FOUND) {
@@ -1949,8 +1951,9 @@ int Handler::send_greeting() {
 
   static constexpr uint8_t hw[] = "Hello World!";
   stream->streambuf.emplace_back(hw, str_size(hw));
-  stream->should_send_fin = true;
-  stream->resp_state = RESP_COMPLETED;
+  //stream->should_send_fin = true;
+  //stream->resp_state = RESP_COMPLETED;
+  stream->resp_state = RESP_IDLE;
 
   streams_.emplace(stream_id, std::move(stream));
 

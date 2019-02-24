@@ -315,7 +315,7 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
   
   c->rtp_seqnum_ += 1;
   //50fps, assume sampling rate of 8000Hz
-  c->rtp_timestamp_ += 160;
+  c->rtp_timestamp_ += 3000;
   
   //std::cerr << "RTP CALLBACK, seq: "  << (c->rtp_seqnum_) << ", ts: " << (c->rtp_timestamp_) << std::endl;
 
@@ -328,6 +328,7 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
 
 namespace {
 void writecb(struct ev_loop *loop, ev_io *w, int revents) {
+  std::cerr << "writecb" << std::endl;
   ev_io_stop(loop, w);
 
   auto c = static_cast<Client *>(w->data);
@@ -482,8 +483,9 @@ Client::Client(struct ev_loop *loop, SSL_CTX *ssl_ctx)
   rttimer_.data = this;
   //CUSTOM RTP TIMER
   //CHANGE REPEAT TO 1/50 LATER!!
+  ev_timer_init(&rtptimer_, write_rtp_cb, 1.0, 1.0);
   //trigger 1s after init, repeat every 1/50 s
-  ev_timer_init(&rtptimer_, write_rtp_cb, 1.0, (1.0/50.0));
+  //ev_timer_init(&rtptimer_, write_rtp_cb, 1.0, (1.0/50.0));
   rtptimer_.data = this;
   ev_signal_init(&sigintev_, siginthandler, SIGINT);
 }
@@ -501,6 +503,7 @@ void Client::disconnect(int liberr) {
   ev_timer_stop(loop_, &key_update_timer_);
   ev_timer_stop(loop_, &change_local_addr_timer_);
   ev_timer_stop(loop_, &rttimer_);
+  ev_timer_stop(loop_, &rtptimer_);
   ev_timer_stop(loop_, &timer_);
 
   ev_io_stop(loop_, &stdinrev_);
@@ -570,6 +573,8 @@ namespace {
 int recv_stream_data(ngtcp2_conn *conn, uint64_t stream_id, int fin,
                      uint64_t offset, const uint8_t *data, size_t datalen,
                      void *user_data, void *stream_user_data) {
+  std::cerr << "recv stream data" << std::endl;
+  
   if (!config.quiet) {
     debug::print_stream_data(stream_id, data, datalen);
   }
@@ -959,7 +964,9 @@ int Client::init(int fd, const Address &local_addr, const Address &remote_addr,
   settings.max_stream_data_bidi_remote = 256_k;
   settings.max_stream_data_uni = 256_k;
   settings.max_data = 1_m;
-  settings.max_streams_bidi = 1;
+  //CHANGED MAX_STREAMS_BIDI SETTING HERE
+  settings.max_streams_bidi = 10;
+  //settings.max_streams_bidi = 1;
   settings.max_streams_uni = 1;
   settings.idle_timeout = config.timeout;
   settings.max_packet_size = NGTCP2_MAX_PKT_SIZE;
@@ -1339,6 +1346,7 @@ int Client::on_read() {
 }
 
 int Client::on_write(bool retransmit) {
+  std::cerr << "on_write" << std::endl;
   if (sendbuf_.size() > 0) {
     auto rv = send_packet();
     if (rv != NETWORK_ERR_OK) {
@@ -1352,6 +1360,7 @@ int Client::on_write(bool retransmit) {
   assert(sendbuf_.left() >= max_pktlen_);
 
   if (retransmit) {
+    std::cerr << "retransmit == true" << std::endl;
     auto rv =
         ngtcp2_conn_on_loss_detection_timer(conn_, util::timestamp(loop_));
     if (rv != 0) {
@@ -1364,6 +1373,7 @@ int Client::on_write(bool retransmit) {
 
   if (!ngtcp2_conn_get_handshake_completed(conn_)) {
     auto rv = do_handshake(nullptr, 0);
+    std::cerr << "handshake completed" << std::endl;
     schedule_retransmit();
     return rv;
   }
@@ -1371,6 +1381,7 @@ int Client::on_write(bool retransmit) {
   for (;;) {
     auto n = ngtcp2_conn_write_pkt(conn_, nullptr, sendbuf_.wpos(), max_pktlen_,
                                    util::timestamp(loop_));
+    std::cerr << "ngtcp2_conn_write_pkt" << std::endl;
     if (n < 0) {
       std::cerr << "ngtcp2_conn_write_pkt: " << ngtcp2_strerror(n) << std::endl;
       disconnect(n);
@@ -1404,6 +1415,7 @@ int Client::on_write(bool retransmit) {
 }
 
 int Client::write_streams() {
+  std::cerr << "write_streams" << std::endl;
   for (auto &p : streams_) {
     auto &stream = p.second;
     auto &streambuf = stream->streambuf;
@@ -1432,6 +1444,8 @@ int Client::write_streams() {
 }
 
 int Client::on_write_stream(uint64_t stream_id, uint8_t fin, Buffer &data) {
+  std::cerr << "on_write_stream" << std::endl;
+
   ssize_t ndatalen;
 
   for (;;) {
@@ -1462,6 +1476,7 @@ int Client::on_write_stream(uint64_t stream_id, uint8_t fin, Buffer &data) {
     }
 
     sendbuf_.push(n);
+    std::cerr << "content pushed to sendbuf_ from on_write_stream" << std::endl;
 
     auto rv = send_packet();
     if (rv != NETWORK_ERR_OK) {
@@ -1899,6 +1914,7 @@ int Client::initiate_key_update() {
 }
 
 int Client::send_packet() {
+  std::cerr << "send_packet" << std::endl;
   if (debug::packet_lost(config.tx_loss_prob)) {
     if (!config.quiet) {
       std::cerr << "** Simulated outgoing packet loss **" << std::endl;
@@ -2059,18 +2075,26 @@ int Client::start_rtp() {
 
 int Client::send_rtp() {
   std::cerr << "RTP function started" << std::endl;
+  std::cerr << "last_steam_id = " << last_stream_id_ << std::endl;
+  std::cerr << "streams_ size = " << streams_.size() << std::endl;
   ssize_t nread;
   
   int rv;
+  uint8_t * buffer;
 
   //retrieve last stream created
   //auto &rtp_stream = streams_[stream_id];
   auto &rtp_stream = streams_[last_stream_id_];
+  //std::cerr << "Check for streambuf... empty? " << rtp_stream->streambuf.empty() << std::endl;
   
   //append data to the stream buffer
   std::cerr << "writing to RTP stream..." << std::endl;
   static constexpr uint8_t hw[] = "Test RTP data!";
-  rtp_stream->streambuf.emplace_back(hw, str_size(hw));
+  buffer = (uint8_t*) malloc(str_size(hw));
+  std::copy(hw, hw + str_size(hw), buffer);
+  //rtp_stream->streambuf.emplace_back(hw, str_size(hw));
+  //rtp_stream->streambuf.emplace(0, std::move(hw));
+  rtp_stream->streambuf.emplace_back(buffer, str_size(hw));
   std::cerr << "RTP stream written" << std::endl;
   
   //set write event
@@ -2176,6 +2200,7 @@ void Client::on_stream_close(uint64_t stream_id) {
     ev_io_stop(loop_, &stdinrev_);
   }
 
+  std::cerr << "\non_stream_close\n" << std::endl;
   streams_.erase(it);
 }
 
@@ -2272,7 +2297,7 @@ void Client::make_stream_early() {
 int Client::on_extend_max_streams() {
   int rv;
 
-  if (config.interactive || config.rtp) {
+  if (config.rtp) {
   //if (config.interactive) {
     if (last_stream_id_ != UINT64_MAX) {
       return 0;
@@ -2283,6 +2308,17 @@ int Client::on_extend_max_streams() {
     //if (send_rtp() != 0) {
     if (start_rtp() != 0) {
       //this->start_wev();
+      return -1;
+    }
+
+    return 0;
+  }
+  
+  if (config.interactive) {
+    if (last_stream_id_ != UINT64_MAX) {
+      return 0;
+    }
+    if (start_interactive_input() != 0) {
       return -1;
     }
 
@@ -2312,7 +2348,9 @@ int Client::on_extend_max_streams() {
   return 0;
 }
 
-void Client::start_wev() { ev_io_start(loop_, &wev_); }
+void Client::start_wev() { std::cerr << "RTP function started" << std::endl;
+
+ev_io_start(loop_, &wev_); }
 
 void Client::set_tls_alert(uint8_t alert) { tls_alert_ = alert; }
 
@@ -2635,7 +2673,6 @@ int main(int argc, char **argv) {
     };
 
     auto optidx = 0;
-    //Why is this string split into sections?
     auto c = getopt_long(argc, argv, "d:hin:eqr:st:v:", long_opts, &optidx);
     if (c == -1) {
       break;
