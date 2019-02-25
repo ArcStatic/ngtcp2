@@ -228,12 +228,23 @@ public:
   void update_remote_addr(const ngtcp2_addr *addr);
 
   int send_greeting();
+  
+  //CUSTOM ADDED FUNCTIONS
+  int start_rtp();
+  int send_rtp();
+  int stop_rtp();
+  //END OF CUSTOM ADDED FUNCTIONS
 
   int on_key(int name, const uint8_t *secret, size_t secretlen);
 
   void set_tls_alert(uint8_t alert);
 
   int update_key();
+  
+  // RTP timestamp and sequence numbers
+  //TODO make these 32-bit - currently issues with sendbuf
+  uint8_t rtp_timestamp_;
+  uint8_t rtp_seqnum_;
 
 private:
   Address remote_addr_;
@@ -245,6 +256,7 @@ private:
   int fd_;
   ev_timer timer_;
   ev_timer rttimer_;
+  ev_timer rtptimer_;
   std::vector<uint8_t> chandshake_;
   size_t ncread_;
   std::deque<Buffer> shandshake_;
@@ -278,6 +290,8 @@ private:
   bool initial_;
   // draining_ becomes true when draining period starts.
   bool draining_;
+  //TODO replace this with something better able to handle multiple streams
+  uint64_t last_stream_id_;
 };
 
 constexpr size_t TOKEN_SECRETLEN = 16;
@@ -306,6 +320,7 @@ public:
   std::map<std::string, std::unique_ptr<Handler>>::const_iterator
   remove(std::map<std::string, std::unique_ptr<Handler>>::const_iterator it);
   void start_wev();
+  void start_rev();
 
   int derive_token_key(uint8_t *key, size_t &keylen, uint8_t *iv, size_t &ivlen,
                        const uint8_t *rand_data, size_t rand_datalen);

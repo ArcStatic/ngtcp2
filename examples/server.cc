@@ -685,6 +685,33 @@ void retransmitcb(struct ev_loop *loop, ev_timer *w, int revents) {
 }
 } // namespace
 
+namespace {
+void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
+  //ev_io_stop(loop, w);
+
+  auto h = static_cast<Handler *>(w->data);
+  auto s = h->server();
+  //auto conn = h->conn();
+  //auto now = util::timestamp(loop);
+
+  
+  h->rtp_seqnum_ += 1;
+  //50fps, assume sampling rate of 8000Hz
+  //c->rtp_timestamp_ += 3000;
+  h->rtp_timestamp_ += 10;
+  
+  //std::cerr << "RTP CALLBACK, seq: "  << (c->rtp_seqnum_) << ", ts: " << (c->rtp_timestamp_) << std::endl;
+
+  h->send_rtp();
+  s->start_wev();
+  //s->start_rev();
+
+  return;
+  
+}
+} // namespace
+
+
 Handler::Handler(struct ev_loop *loop, SSL_CTX *ssl_ctx, Server *server,
                  const ngtcp2_cid *rcid)
     : remote_addr_{},
@@ -705,11 +732,20 @@ Handler::Handler(struct ev_loop *loop, SSL_CTX *ssl_ctx, Server *server,
       nkey_update_(0),
       tls_alert_(0),
       initial_(true),
-      draining_(false) {
+      draining_(false),
+      rtp_timestamp_(0),
+      rtp_seqnum_(0),
+      last_stream_id_(0) {
   ev_timer_init(&timer_, timeoutcb, 0., config.timeout);
   timer_.data = this;
   ev_timer_init(&rttimer_, retransmitcb, 0., 0.);
   rttimer_.data = this;
+  //CUSTOM RTP TIMER
+  //CHANGE REPEAT TO 1/50 LATER!!
+  ev_timer_init(&rtptimer_, write_rtp_cb, 1.0, 1.0);
+  //trigger 1s after init, repeat every 1/50 s
+  //ev_timer_init(&rtptimer_, write_rtp_cb, 1.0, (1.0/50.0));
+  rtptimer_.data = this;
 }
 
 Handler::~Handler() {
@@ -750,7 +786,9 @@ int handshake_completed(ngtcp2_conn *conn, void *user_data) {
     debug::handshake_completed(conn, user_data);
   }
 
+  //IMPORTANT: start of sending
   h->send_greeting();
+  h->start_rtp();
 
   return 0;
 }
@@ -1927,7 +1965,7 @@ int Handler::remove_tx_stream_data(uint64_t stream_id, uint64_t offset,
                           stream->tx_stream_offset, offset + datalen);
   
   if (stream->streambuf.empty() && stream->resp_state == RESP_COMPLETED) {
-    rv = ngtcp2_conn_shutdown_stream_read(conn_, stream_id, NGTCP2_APP_NOERROR);
+    //rv = ngtcp2_conn_shutdown_stream_read(conn_, stream_id, NGTCP2_APP_NOERROR);
     if (rv != 0 && rv != NGTCP2_ERR_STREAM_NOT_FOUND) {
       std::cerr << "ngtcp2_conn_shutdown_stream_read: " << ngtcp2_strerror(rv)
                 << std::endl;
@@ -1943,22 +1981,120 @@ int Handler::send_greeting() {
   uint64_t stream_id;
 
   rv = ngtcp2_conn_open_uni_stream(conn_, &stream_id, nullptr);
+  //rv = ngtcp2_conn_open_bidi_stream(conn_, &stream_id, nullptr);
   if (rv != 0) {
     return 0;
   }
 
   auto stream = std::make_unique<Stream>(stream_id);
 
-  static constexpr uint8_t hw[] = "Hello World!";
+  static constexpr uint8_t hw[] = "Welcome to the RTP server!";
   stream->streambuf.emplace_back(hw, str_size(hw));
   //stream->should_send_fin = true;
   //stream->resp_state = RESP_COMPLETED;
   stream->resp_state = RESP_IDLE;
 
   streams_.emplace(stream_id, std::move(stream));
+  
+  last_stream_id_ = stream_id;
 
   return 0;
 }
+
+//CUSTOM ADDED FUNCTIONS
+//create a stream for RTP and RTCP
+int Handler::start_rtp() {
+  //return value
+  int rv;
+
+  std::cerr << "RTP session started."
+            << std::endl;
+            
+  uint64_t stream_id;
+
+  //create bidirectional stream
+  rv = ngtcp2_conn_open_bidi_stream(conn_, &stream_id, nullptr);
+  if (rv != 0) {
+    std::cerr << "ngtcp2_conn_open_bidi_stream: " << ngtcp2_strerror(rv)
+              << std::endl;
+    if (rv == NGTCP2_ERR_STREAM_ID_BLOCKED) {
+      return 0;
+    }
+    return -1;
+  }
+
+  std::cerr << "The stream " << stream_id << " has opened for RTP." << std::endl;
+
+  //update most recently used stream ID
+  last_stream_id_ = stream_id;
+
+  //create a stream
+  auto stream = std::make_unique<Stream>(stream_id);
+
+  //vector which stream is moved to at position stream_id
+  streams_.emplace(stream_id, std::move(stream));
+  
+  //RTP TIMER START
+  //this is likely better moved somewhere else, probably in run
+  ev_timer_start (loop_, &rtptimer_);
+  //ev_feed_event(loop_, &wev_, EV_WRITE);
+
+  return 0;
+}
+
+int Handler::send_rtp() {
+  std::cerr << "RTP function started" << std::endl;
+  //std::cerr << "last_steam_id = " << last_stream_id_ << std::endl;
+  //std::cerr << "streams_ size = " << streams_.size() << std::endl;
+  ssize_t nread;
+  
+  //auto h = static_cast<Handler *>(w->data);
+  //auto s = h->server();
+  //auto s = this->server();
+  //auto conn = h->conn();
+  //auto now = util::timestamp(loop);
+  
+  int rv;
+  uint8_t * buffer;
+
+  auto &rtp_stream = streams_[last_stream_id_];
+  
+  //append data to the stream buffer
+  std::cerr << "writing to RTP stream..." << std::endl;
+  static constexpr uint8_t hw[] = "Test RTP data from server!";
+  //buffer = (uint8_t*) malloc(str_size(hw));
+  //std::copy(hw, hw + str_size(hw), buffer);
+  rtp_stream->streambuf.emplace_back(hw, str_size(hw));
+  //rtp_stream->streambuf.emplace_back(&rtp_timestamp_, sizeof(rtp_timestamp_));
+  //rtp_stream->streambuf.emplace_back(&rtp_seqnum_, sizeof(rtp_seqnum_));
+  //rtp_stream->streambuf.emplace_back(buffer, str_size(hw));
+  std::cerr << "RTP stream written" << std::endl;
+  
+  //rtp_stream->resp_state = RESP_IDLE;
+  
+  //set write event
+  //ev_feed_event(loop_, s->wev_, EV_WRITE);
+
+  return 0;
+}
+
+int Handler::stop_rtp() {
+  assert(!streams_.empty());
+
+  auto &stream = (*std::begin(streams_)).second;
+
+  stream->should_send_fin = true;
+  if (stream->streambuf.empty()) {
+    stream->streambuf.emplace_back();
+  }
+
+  std::cerr << "RTP session has ended." << std::endl;
+
+  //ev_feed_event(loop_, &wev_, EV_WRITE);
+
+  return 0;
+}
+//END OF CUSTOM ADDED FUNCTIONS
 
 void Handler::on_stream_close(uint64_t stream_id) {
   auto it = streams_.find(stream_id);
@@ -2611,6 +2747,9 @@ std::map<std::string, std::unique_ptr<Handler>>::const_iterator Server::remove(
 }
 
 void Server::start_wev() { ev_io_start(loop_, &wev_); }
+
+void Server::start_rev() { ev_io_start(loop_, &rev_); }
+
 
 const Address &Server::get_local_addr() const { return local_addr_; }
 

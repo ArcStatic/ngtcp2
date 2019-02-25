@@ -315,7 +315,8 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
   
   c->rtp_seqnum_ += 1;
   //50fps, assume sampling rate of 8000Hz
-  c->rtp_timestamp_ += 3000;
+  //c->rtp_timestamp_ += 3000;
+  c->rtp_timestamp_ += 10;
   
   //std::cerr << "RTP CALLBACK, seq: "  << (c->rtp_seqnum_) << ", ts: " << (c->rtp_timestamp_) << std::endl;
 
@@ -2075,26 +2076,24 @@ int Client::start_rtp() {
 
 int Client::send_rtp() {
   std::cerr << "RTP function started" << std::endl;
-  std::cerr << "last_steam_id = " << last_stream_id_ << std::endl;
-  std::cerr << "streams_ size = " << streams_.size() << std::endl;
+  //std::cerr << "last_steam_id = " << last_stream_id_ << std::endl;
+  //std::cerr << "streams_ size = " << streams_.size() << std::endl;
   ssize_t nread;
   
   int rv;
   uint8_t * buffer;
 
-  //retrieve last stream created
-  //auto &rtp_stream = streams_[stream_id];
   auto &rtp_stream = streams_[last_stream_id_];
-  //std::cerr << "Check for streambuf... empty? " << rtp_stream->streambuf.empty() << std::endl;
   
   //append data to the stream buffer
   std::cerr << "writing to RTP stream..." << std::endl;
-  static constexpr uint8_t hw[] = "Test RTP data!";
-  buffer = (uint8_t*) malloc(str_size(hw));
-  std::copy(hw, hw + str_size(hw), buffer);
-  //rtp_stream->streambuf.emplace_back(hw, str_size(hw));
-  //rtp_stream->streambuf.emplace(0, std::move(hw));
-  rtp_stream->streambuf.emplace_back(buffer, str_size(hw));
+  static constexpr uint8_t hw[] = "Test RTP data from client!";
+  //buffer = (uint8_t*) malloc(str_size(hw));
+  //std::copy(hw, hw + str_size(hw), buffer);
+  rtp_stream->streambuf.emplace_back(hw, str_size(hw));
+  //rtp_stream->streambuf.emplace_back(&rtp_timestamp_, sizeof(rtp_timestamp_));
+  //rtp_stream->streambuf.emplace_back(&rtp_seqnum_, sizeof(rtp_seqnum_));
+  //rtp_stream->streambuf.emplace_back(buffer, str_size(hw));
   std::cerr << "RTP stream written" << std::endl;
   
   //set write event

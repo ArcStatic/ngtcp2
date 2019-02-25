@@ -230,8 +230,9 @@ public:
   void set_tls_alert(uint8_t alert);
   
   // RTP timestamp and sequence numbers
-  int rtp_timestamp_;
-  int rtp_seqnum_;
+  //TODO make these 32-bit - currently issues with sendbuf
+  uint8_t rtp_timestamp_;
+  uint8_t rtp_seqnum_;
 
 private:
   Address local_addr_;
