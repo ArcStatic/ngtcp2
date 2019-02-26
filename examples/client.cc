@@ -577,7 +577,28 @@ int recv_stream_data(ngtcp2_conn *conn, uint64_t stream_id, int fin,
   std::cerr << "recv stream data" << std::endl;
   
   if (!config.quiet) {
+    //need to change this to parse RTP headers
     debug::print_stream_data(stream_id, data, datalen);
+    
+    uint32_t recovered_ts = 0;
+    uint32_t recovered_seqnum = 0;
+    //recover RTP timestamp from payload 
+    for (int i = 0; i < 4; i++){
+      //32-bit, big-endian
+      recovered_ts += ((*(data + i)) << ((3 - i) * 8));
+      //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
+      //buffer.emplace_back(current_byte);
+    }
+    std::cerr << "recovered timestamp: " << recovered_ts << std::endl;
+    
+    //recover RTP sequence number from payload 
+    for (int i = 4; i < 8; i++){
+      //32-bit, big-endian
+      recovered_seqnum += ((*(data + i)) << ((7 - i) * 8));
+      //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
+      //buffer.emplace_back(current_byte);
+    }
+    std::cerr << "recovered sequence number: " << recovered_seqnum << std::endl;
   }
   ngtcp2_conn_extend_max_stream_offset(conn, stream_id, datalen);
   ngtcp2_conn_extend_max_offset(conn, datalen);

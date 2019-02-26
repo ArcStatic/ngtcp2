@@ -2061,7 +2061,7 @@ int Handler::send_rtp() {
   
   //append RTP sequence number to payload
   for (int i = 0; i < 4; i++){
-    //big-endian
+    //32-bit, big-endian
     current_byte = (rtp_timestamp_ >> ((3 - i) * 8));
     //std::cout << "rtp_timestamp_: " << rtp_timestamp_ << std::endl;
     //std::cout << std::bitset<32>(rtp_timestamp_) << std::endl;
