@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <memory>
 #include <fstream>
+#include <bitset>
 
 #include <unistd.h>
 #include <getopt.h>
@@ -68,6 +69,7 @@ namespace {
 Config config{};
 } // namespace
 
+//Buffer::Buffer(const uint8_t *data, size_t datalen)
 Buffer::Buffer(const uint8_t *data, size_t datalen)
     : buf{data, data + datalen},
       begin(buf.data()),
@@ -697,8 +699,8 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
   
   h->rtp_seqnum_ += 1;
   //50fps, assume sampling rate of 8000Hz
-  //c->rtp_timestamp_ += 3000;
-  h->rtp_timestamp_ += 10;
+  h->rtp_timestamp_ += 3000;
+  //h->rtp_timestamp_ += 10;
   
   //std::cerr << "RTP CALLBACK, seq: "  << (c->rtp_seqnum_) << ", ts: " << (c->rtp_timestamp_) << std::endl;
 
@@ -1827,7 +1829,7 @@ int Handler::recv_stream_data(uint64_t stream_id, uint8_t fin,
 
   if (stream->recv_data(fin, data, datalen) != 0) {
     if (stream->resp_state == RESP_IDLE) {
-      stream->send_status_response(400);
+      //stream->send_status_response(400);
       //rv = ngtcp2_conn_shutdown_stream_read(conn_, stream_id, NGTCP2_APP_PROTO);
       if (rv != 0) {
         std::cerr << "ngtcp2_conn_shutdown_stream_read: " << ngtcp2_strerror(rv)
@@ -2048,26 +2050,38 @@ int Handler::send_rtp() {
   //std::cerr << "streams_ size = " << streams_.size() << std::endl;
   ssize_t nread;
   
-  //auto h = static_cast<Handler *>(w->data);
-  //auto s = h->server();
-  //auto s = this->server();
-  //auto conn = h->conn();
-  //auto now = util::timestamp(loop);
-  
   int rv;
-  uint8_t * buffer;
+  std::vector<uint8_t> buffer = {};
+  uint8_t current_byte;
 
   auto &rtp_stream = streams_[last_stream_id_];
   
-  //append data to the stream buffer
   std::cerr << "writing to RTP stream..." << std::endl;
   static constexpr uint8_t hw[] = "Test RTP data from server!";
-  //buffer = (uint8_t*) malloc(str_size(hw));
-  //std::copy(hw, hw + str_size(hw), buffer);
-  rtp_stream->streambuf.emplace_back(hw, str_size(hw));
-  //rtp_stream->streambuf.emplace_back(&rtp_timestamp_, sizeof(rtp_timestamp_));
-  //rtp_stream->streambuf.emplace_back(&rtp_seqnum_, sizeof(rtp_seqnum_));
-  //rtp_stream->streambuf.emplace_back(buffer, str_size(hw));
+  
+  //append RTP sequence number to payload
+  for (int i = 0; i < 4; i++){
+    //big-endian
+    current_byte = (rtp_timestamp_ >> ((3 - i) * 8));
+    //std::cout << "rtp_timestamp_: " << rtp_timestamp_ << std::endl;
+    //std::cout << std::bitset<32>(rtp_timestamp_) << std::endl;
+    //std::cout << "rtp_timestamp_ shifted >> " << ((3 - i) * 8) << ": " << (rtp_timestamp_ >> ((3 - i) * 8)) << std::endl;
+    buffer.emplace_back(current_byte);
+    //std::cout << "current_byte: " << unsigned(current_byte) << std::endl;
+    //std::cout << std::string((i * 8),'-') << std::bitset<8>(current_byte) << std::endl;
+    //std::cout << "item at buffer[" << i << "]: " << unsigned(buffer.at(i)) << std::endl;
+  }
+  
+  //append RTP timestamp to payload 
+  for (int i = 0; i < 4; i++){
+    //big-endian
+    current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
+    buffer.emplace_back(current_byte);
+  }
+  
+  rtp_stream->streambuf.emplace_back(buffer.data(), buffer.size());
+  //rtp_stream->streambuf.emplace_back(hw, str_size(hw));
+  
   std::cerr << "RTP stream written" << std::endl;
   
   //rtp_stream->resp_state = RESP_IDLE;

@@ -73,6 +73,7 @@ struct Config {
 
 struct Buffer {
   Buffer(const uint8_t *data, size_t datalen);
+  //Buffer(uint8_t *data, size_t datalen);
   Buffer(uint8_t *begin, uint8_t *end);
   explicit Buffer(size_t datalen);
   Buffer();
@@ -80,7 +81,9 @@ struct Buffer {
   size_t size() const { return tail - head; }
   size_t left() const { return buf.data() + buf.size() - tail; }
   uint8_t *const wpos() { return tail; }
+  //uint8_t * wpos() { return tail; }
   const uint8_t *rpos() const { return head; }
+  //uint8_t *rpos() const { return head; }
   void seek(size_t len) { head += len; }
   void push(size_t len) { tail += len; }
   void reset() { head = tail = begin; }
@@ -243,8 +246,8 @@ public:
   
   // RTP timestamp and sequence numbers
   //TODO make these 32-bit - currently issues with sendbuf
-  uint8_t rtp_timestamp_;
-  uint8_t rtp_seqnum_;
+  uint32_t rtp_timestamp_;
+  uint32_t rtp_seqnum_;
 
 private:
   Address remote_addr_;
