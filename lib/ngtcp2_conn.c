@@ -27,6 +27,8 @@
 #include <string.h>
 #include <assert.h>
 #include <math.h>
+//included for project
+#include <stdio.h>
 
 #include "ngtcp2_ppe.h"
 #include "ngtcp2_macro.h"
@@ -575,6 +577,7 @@ static size_t conn_enforce_flow_control(ngtcp2_conn *conn, ngtcp2_strm *strm,
   return ngtcp2_min(len, fc_credits);
 }
 
+//relevant to project
 static void delete_buffed_pkts(ngtcp2_pkt_chain *pc, ngtcp2_mem *mem) {
   ngtcp2_pkt_chain *next;
 
@@ -859,13 +862,17 @@ static int conn_ppe_write_frame(ngtcp2_conn *conn, ngtcp2_ppe *ppe,
  * NGTCP2_ERR_NOMEM
  *     Out of memory
  */
+//relevant to project
 static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
                             ngtcp2_rtb_entry *ent) {
   int rv;
 
   /* This function implements OnPacketSent, but it handles only
      retransmittable packet (non-ACK only packet). */
-  rv = ngtcp2_rtb_add(rtb, ent);
+  
+  //Break the retransmit buffer!
+  //results in nothing being sent after the first instance of packet loss
+  //rv = ngtcp2_rtb_add(rtb, ent);
   if (rv != 0) {
     return rv;
   }
@@ -876,6 +883,9 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
   } else {
     conn->rcs.last_tx_pkt_ts = ent->ts;
   }
+  printf("\n!!PACKET SENT!!\n\n");
+  //Break the retransmission timer!
+  //results in chunks of RTP sequence numbers being skipped because payloads are merged
   ngtcp2_conn_set_loss_detection_timer(conn);
 
   return 0;
@@ -3367,6 +3377,7 @@ static int conn_on_retry(ngtcp2_conn *conn, const ngtcp2_pkt_hd *hd,
   return 0;
 }
 
+//relevant to project
 int ngtcp2_conn_detect_lost_pkt(ngtcp2_conn *conn, ngtcp2_pktns *pktns,
                                 ngtcp2_rcvry_stat *rcs, ngtcp2_tstamp ts) {
   ngtcp2_frame_chain *frc = NULL;
@@ -3539,6 +3550,7 @@ static void conn_recv_max_data(ngtcp2_conn *conn, const ngtcp2_max_data *fr) {
  * NGTCP2_ERR_NOMEM
  *     Out of memory.
  */
+//relevant to project
 static int conn_buffer_pkt(ngtcp2_conn *conn, ngtcp2_pkt_chain **ppc,
                            const uint8_t *pkt, size_t pktlen,
                            ngtcp2_tstamp ts) {
@@ -3922,24 +3934,48 @@ static int pktns_pkt_num_is_duplicate(ngtcp2_pktns *pktns, uint64_t pkt_num) {
  * pktns_commit_recv_pkt_num marks packet number |pkt_num| as
  * received.
  */
+//important for project
 static int pktns_commit_recv_pkt_num(ngtcp2_pktns *pktns, uint64_t pkt_num) {
   int rv;
   ngtcp2_psl_it it;
   ngtcp2_range key;
+  //added for project - tracks how many packets should have been received
+  //claim that dropped packets have been received
+  int offset;
+  
+  offset = 1;
 
+  //if not next expected packet number, set immediate ack flag
   if (pktns->max_rx_pkt_num + 1 != pkt_num) {
     ngtcp2_acktr_immediate_ack(&pktns->acktr);
   }
+  
+  //if packet number space exhausted or packet number is larger than previous maximum, update max received value
   if (pktns->max_rx_pkt_num == (uint64_t)-1 ||
       pktns->max_rx_pkt_num < pkt_num) {
+    offset = pkt_num - pktns-> max_rx_pkt_num;
     pktns->max_rx_pkt_num = pkt_num;
   }
 
+  //push packet number to pngap
   rv = ngtcp2_gaptr_push(&pktns->pngap, pkt_num, 1);
   if (rv != 0) {
     return rv;
   }
-
+  /*
+  // failed attempt
+  for (int j = 0; j < offset ; j++){ 
+    rv = ngtcp2_gaptr_push(&pktns->pngap, pkt_num, 1);
+    if (rv != 0) {
+      return rv;
+    }
+  }
+  */
+  
+  
+  //printf("OFFSET -> FIRST GAP: %lu\n", ngtcp2_gaptr_first_gap_offset(&pktns->pngap));
+  
+  //if skip list gap (ie. packets not received) > 256, cleanup list
   if (ngtcp2_psl_len(&pktns->pngap.gap) > 256) {
     it = ngtcp2_psl_begin(&pktns->pngap.gap);
     key = ngtcp2_psl_it_range(&it);
@@ -4539,6 +4575,7 @@ fail:
  * NGTCP2_ERR_NOMEM
  *     Out of memory.
  */
+//vital to project
 static int conn_emit_pending_stream_data(ngtcp2_conn *conn, ngtcp2_strm *strm,
                                          uint64_t rx_offset) {
   size_t datalen;
@@ -4546,6 +4583,8 @@ static int conn_emit_pending_stream_data(ngtcp2_conn *conn, ngtcp2_strm *strm,
   int rv;
   uint64_t offset;
 
+  //This function doesn't fire if data is not retransmitted (project)
+  
   for (;;) {
     datalen = ngtcp2_rob_data_at(&strm->rob, &data, rx_offset);
     if (datalen == 0) {
@@ -4689,7 +4728,9 @@ static int conn_max_data_violated(ngtcp2_conn *conn, size_t datalen) {
  *     STREAM frame has strictly larger end offset than it is
  *     permitted.
  */
-static int conn_recv_stream(ngtcp2_conn *conn, const ngtcp2_stream *fr) {
+//static int conn_recv_stream(ngtcp2_conn *conn, const ngtcp2_stream *fr) {
+//changed for project
+static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
   int rv;
   ngtcp2_strm *strm;
   ngtcp2_idtr *idtr;
@@ -4759,7 +4800,9 @@ static int conn_recv_stream(ngtcp2_conn *conn, const ngtcp2_stream *fr) {
       ngtcp2_strm_shutdown(strm, NGTCP2_STRM_FLAG_SHUT_WR);
     }
   }
-
+  
+  //project offset stuff - check from here
+  
   fr_end_offset = fr->offset + datalen;
 
   if (strm->max_rx_offset < fr_end_offset) {
@@ -4767,13 +4810,16 @@ static int conn_recv_stream(ngtcp2_conn *conn, const ngtcp2_stream *fr) {
   }
 
   if (strm->last_rx_offset < fr_end_offset) {
+    printf("\nERROR TRACE 1\n");
     size_t len = fr_end_offset - strm->last_rx_offset;
 
     if (conn_max_data_violated(conn, len)) {
+    printf("ERROR TRACE 2\n");
       return NGTCP2_ERR_FLOW_CONTROL;
     }
 
     conn->rx_offset += len;
+    printf("ERROR TRACE 3\n");
   }
 
   rx_offset = ngtcp2_strm_rx_offset(strm);
@@ -4809,40 +4855,59 @@ static int conn_recv_stream(ngtcp2_conn *conn, const ngtcp2_stream *fr) {
                                                      NGTCP2_NO_ERROR);
       }
     }
-  } else {
+  } 
+  
+  //check from here
+  else {
     if ((strm->flags & NGTCP2_STRM_FLAG_SHUT_RD) &&
         strm->last_rx_offset < fr_end_offset) {
+        printf("ERROR TRACE 4\n");
       return NGTCP2_ERR_FINAL_OFFSET;
     }
 
     strm->last_rx_offset = ngtcp2_max(strm->last_rx_offset, fr_end_offset);
 
     if (fr_end_offset <= rx_offset) {
+      printf("ERROR TRACE 5\n");
       return 0;
     }
 
     if (strm->flags &
         (NGTCP2_STRM_FLAG_STOP_SENDING | NGTCP2_STRM_FLAG_RECV_RST)) {
+        printf("ERROR TRACE 6\n");
       return 0;
     }
   }
-
-  if (fr->offset <= rx_offset) {
+  
+  
+  //problems caused here!
+  printf("fr->offset: %lu, rx_offset: %lu\n", fr->offset, rx_offset);
+  //project modification here
+  //this line causes blocking behaviour of streams!
+  //if (fr->offset <= rx_offset) {
+  if (1) {
+    printf("ERROR TRACE 7\n");
+    
+    fr->offset = rx_offset;
+    
     size_t ncut = rx_offset - fr->offset;
     uint64_t offset = rx_offset;
     const uint8_t *data;
     int fin;
 
     if (fr->datacnt) {
+      printf("ERROR TRACE 8\n");
       data = fr->data[0].base + ncut;
       datalen -= ncut;
 
       rx_offset += datalen;
       rv = ngtcp2_rob_remove_prefix(&strm->rob, rx_offset);
       if (rv != 0) {
+        printf("ERROR TRACE 9\n");
         return rv;
       }
     } else {
+      printf("ERROR TRACE 10\n");
       data = NULL;
       datalen = 0;
     }
@@ -4851,23 +4916,34 @@ static int conn_recv_stream(ngtcp2_conn *conn, const ngtcp2_stream *fr) {
           rx_offset == strm->last_rx_offset;
 
     if (fin || datalen) {
+      printf("ERROR TRACE 11\n");
+      //fr->offset = rx_offset;
       rv = conn_call_recv_stream_data(conn, strm, fin, offset, data, datalen);
       if (rv != 0) {
+        printf("ERROR TRACE 12\n");
         return rv;
       }
 
       rv = conn_emit_pending_stream_data(conn, strm, rx_offset);
       if (rv != 0) {
+        printf("ERROR TRACE 13\n");
         return rv;
       }
     }
   } else if (fr->datacnt) {
+    printf("ERROR TRACE 14\n");
     rv = ngtcp2_strm_recv_reordering(strm, fr->data[0].base, fr->data[0].len,
                                      fr->offset);
     if (rv != 0) {
+      printf("ERROR TRACE 15\n");
       return rv;
     }
   }
+  
+  //fr->offset = rx_offset;
+  //fr->offset = rx_offset - datalen;
+  //strm->last_rx_offset = rx_offset;
+  
   return ngtcp2_conn_close_stream_if_shut_rdwr(conn, strm, NGTCP2_NO_ERROR);
 }
 
@@ -8098,6 +8174,8 @@ static int conn_handshake_pkt_lost(ngtcp2_conn *conn, ngtcp2_pktns *pktns) {
   return 0;
 }
 
+
+//relevant to project
 int ngtcp2_conn_on_loss_detection_timer(ngtcp2_conn *conn, ngtcp2_tstamp ts) {
   ngtcp2_rcvry_stat *rcs = &conn->rcs;
   int rv;
@@ -8113,6 +8191,8 @@ int ngtcp2_conn_on_loss_detection_timer(ngtcp2_conn *conn, ngtcp2_tstamp ts) {
 
   ngtcp2_log_info(&conn->log, NGTCP2_LOG_EVENT_RCV,
                   "loss detection timer fired");
+
+  
 
   if (ngtcp2_rtb_num_ack_eliciting(&in_pktns->rtb) ||
       ngtcp2_rtb_num_ack_eliciting(&hs_pktns->rtb)) {
@@ -8131,6 +8211,7 @@ int ngtcp2_conn_on_loss_detection_timer(ngtcp2_conn *conn, ngtcp2_tstamp ts) {
   } else if (!conn->server && !conn->hs_pktns.tx_ckm) {
     conn->flags |= NGTCP2_CONN_FLAG_FORCE_SEND_INITIAL;
     ++rcs->crypto_count;
+  //project modification needed here?
   } else if (rcs->loss_time) {
     rv = ngtcp2_conn_detect_lost_pkt(conn, pktns, rcs, ts);
     if (rv != 0) {

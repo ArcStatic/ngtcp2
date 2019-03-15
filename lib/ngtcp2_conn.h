@@ -195,6 +195,8 @@ typedef struct {
   uint8_t pkt_type;
 } ngtcp2_crypto_data;
 
+
+//relevant to project
 typedef struct {
   /* pngap tracks received packet number in order to suppress
      duplicated packet number. */

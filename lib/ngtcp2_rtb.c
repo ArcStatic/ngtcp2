@@ -26,6 +26,8 @@
 
 #include <assert.h>
 #include <string.h>
+//included for project
+#include <stdio.h>
 
 #include "ngtcp2_macro.h"
 #include "ngtcp2_conn.h"
@@ -182,6 +184,7 @@ static void rtb_on_add(ngtcp2_rtb *rtb, ngtcp2_rtb_entry *ent) {
   rtb->cc->ccs->bytes_in_flight += ent->pktlen;
 
   if (ent->flags & NGTCP2_RTB_FLAG_ACK_ELICITING) {
+    //!removing this causes receiver to crash
     ++rtb->num_ack_eliciting;
   }
 }
@@ -207,7 +210,11 @@ static void rtb_on_pkt_lost(ngtcp2_rtb *rtb, ngtcp2_frame_chain **pfrc,
        ent->frc. */
     if (ent->frc) {
       /* TODO Reconsider the order of pfrc */
+      //ALTERED FOR PROJECT
+      //frame not inserted to prevent retransmission
+      //!removing frame_chain_insert results in nothing being retransmitted after first instance of loss
       frame_chain_insert(pfrc, ent->frc);
+      printf("frame_chain_insert: reordering for retransmission\n");
       ent->frc = NULL;
     }
   }
@@ -218,7 +225,8 @@ int ngtcp2_rtb_add(ngtcp2_rtb *rtb, ngtcp2_rtb_entry *ent) {
   int rv;
 
   ent->next = NULL;
-
+  
+  //add node to key skip list
   rv = ngtcp2_ksl_insert(&rtb->ents, NULL,
                          (const ngtcp2_ksl_key *)&ent->hd.pkt_num, ent);
   if (rv != 0) {
@@ -472,11 +480,13 @@ int ngtcp2_rtb_detect_lost_pkt(ngtcp2_rtb *rtb, ngtcp2_frame_chain **pfrc,
 
   rcs->loss_time = 0;
   loss_delay = compute_pkt_loss_delay(rcs);
+  //possibly adjust this for determining RTP timeout in project
   lost_send_time = ts - loss_delay;
   lost_pkt_num = rtb->largest_acked_tx_pkt_num - NGTCP2_PACKET_THRESHOLD;
 
   it = ngtcp2_ksl_lower_bound(
       &rtb->ents, (const ngtcp2_ksl_key *)&rtb->largest_acked_tx_pkt_num);
+  //ie. go through all packets waiting to be acked
   for (; !ngtcp2_ksl_it_end(&it); ngtcp2_ksl_it_next(&it)) {
     ent = ngtcp2_ksl_it_get(&it);
 

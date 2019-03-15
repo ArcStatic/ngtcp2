@@ -30,6 +30,9 @@
 #include <memory>
 #include <fstream>
 
+//included for project
+#include <stdio.h>
+
 
 #include <unistd.h>
 #include <getopt.h>
@@ -329,7 +332,7 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
 
 namespace {
 void writecb(struct ev_loop *loop, ev_io *w, int revents) {
-  std::cerr << "writecb" << std::endl;
+  //std::cerr << "writecb" << std::endl;
   ev_io_stop(loop, w);
 
   auto c = static_cast<Client *>(w->data);
@@ -576,12 +579,13 @@ int recv_stream_data(ngtcp2_conn *conn, uint64_t stream_id, int fin,
                      void *user_data, void *stream_user_data) {
   std::cerr << "recv stream data" << std::endl;
   
-  if (!config.quiet) {
+  //if (!config.quiet) {
     //need to change this to parse RTP headers
-    debug::print_stream_data(stream_id, data, datalen);
-    
+    debug::print_stream_data(stream_id, data, datalen);   
+      
     uint32_t recovered_ts = 0;
-    uint32_t recovered_seqnum = 0;
+    uint32_t recovered_seqnum = 0; 
+  
     //recover RTP timestamp from payload 
     for (int i = 0; i < 4; i++){
       //32-bit, big-endian
@@ -589,7 +593,7 @@ int recv_stream_data(ngtcp2_conn *conn, uint64_t stream_id, int fin,
       //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
       //buffer.emplace_back(current_byte);
     }
-    std::cerr << "recovered timestamp: " << recovered_ts << std::endl;
+    
     
     //recover RTP sequence number from payload 
     for (int i = 4; i < 8; i++){
@@ -598,8 +602,10 @@ int recv_stream_data(ngtcp2_conn *conn, uint64_t stream_id, int fin,
       //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
       //buffer.emplace_back(current_byte);
     }
-    std::cerr << "recovered sequence number: " << recovered_seqnum << std::endl;
-  }
+      std::cerr << "recovered timestamp: " << recovered_ts << std::endl;
+      std::cerr << "recovered sequence number: " << recovered_seqnum << std::endl;
+  //}
+  
   ngtcp2_conn_extend_max_stream_offset(conn, stream_id, datalen);
   ngtcp2_conn_extend_max_offset(conn, datalen);
   return 0;
@@ -1340,7 +1346,7 @@ int Client::on_read() {
 
     if (nread == -1) {
       if (errno != EAGAIN && errno != EWOULDBLOCK) {
-        std::cerr << "recvfrom: " << strerror(errno) << std::endl;
+        //std::cerr << "recvfrom: " << strerror(errno) << std::endl;
       }
       break;
     }
@@ -1368,7 +1374,7 @@ int Client::on_read() {
 }
 
 int Client::on_write(bool retransmit) {
-  std::cerr << "on_write" << std::endl;
+  //std::cerr << "on_write" << std::endl;
   if (sendbuf_.size() > 0) {
     auto rv = send_packet();
     if (rv != NETWORK_ERR_OK) {
@@ -1403,9 +1409,9 @@ int Client::on_write(bool retransmit) {
   for (;;) {
     auto n = ngtcp2_conn_write_pkt(conn_, nullptr, sendbuf_.wpos(), max_pktlen_,
                                    util::timestamp(loop_));
-    std::cerr << "ngtcp2_conn_write_pkt" << std::endl;
+    //std::cerr << "ngtcp2_conn_write_pkt" << std::endl;
     if (n < 0) {
-      std::cerr << "ngtcp2_conn_write_pkt: " << ngtcp2_strerror(n) << std::endl;
+      //std::cerr << "ngtcp2_conn_write_pkt: " << ngtcp2_strerror(n) << std::endl;
       disconnect(n);
       return -1;
     }
@@ -1437,7 +1443,7 @@ int Client::on_write(bool retransmit) {
 }
 
 int Client::write_streams() {
-  std::cerr << "write_streams" << std::endl;
+  //std::cerr << "write_streams" << std::endl;
   for (auto &p : streams_) {
     auto &stream = p.second;
     auto &streambuf = stream->streambuf;
@@ -1466,7 +1472,7 @@ int Client::write_streams() {
 }
 
 int Client::on_write_stream(uint64_t stream_id, uint8_t fin, Buffer &data) {
-  std::cerr << "on_write_stream" << std::endl;
+  //std::cerr << "on_write_stream" << std::endl;
 
   ssize_t ndatalen;
 
@@ -1498,7 +1504,7 @@ int Client::on_write_stream(uint64_t stream_id, uint8_t fin, Buffer &data) {
     }
 
     sendbuf_.push(n);
-    std::cerr << "content pushed to sendbuf_ from on_write_stream" << std::endl;
+    //std::cerr << "content pushed to sendbuf_ from on_write_stream" << std::endl;
 
     auto rv = send_packet();
     if (rv != NETWORK_ERR_OK) {
@@ -1936,7 +1942,7 @@ int Client::initiate_key_update() {
 }
 
 int Client::send_packet() {
-  std::cerr << "send_packet" << std::endl;
+  //std::cerr << "send_packet" << std::endl;
   if (debug::packet_lost(config.tx_loss_prob)) {
     if (!config.quiet) {
       std::cerr << "** Simulated outgoing packet loss **" << std::endl;

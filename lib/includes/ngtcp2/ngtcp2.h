@@ -717,6 +717,7 @@ typedef struct {
  *
  * Everything is NGTCP2_DURATION_TICK resolution.
  */
+ //NEEDED FOR PROJECT
 typedef struct {
   ngtcp2_duration latest_rtt;
   ngtcp2_duration min_rtt;
@@ -1206,6 +1207,7 @@ typedef ssize_t (*ngtcp2_hp_mask)(ngtcp2_conn *conn, uint8_t *dest,
  * :enum:`NGTCP2_ERR_CALLBACK_FAILURE` which makes the library return
  * immediately.
  */
+//NEEDED FOR PROJECT
 typedef int (*ngtcp2_recv_stream_data)(ngtcp2_conn *conn, uint64_t stream_id,
                                        int fin, uint64_t offset,
                                        const uint8_t *data, size_t datalen,

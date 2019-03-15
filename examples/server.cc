@@ -2690,9 +2690,9 @@ int Server::verify_token(ngtcp2_cid *ocid, const ngtcp2_pkt_hd *hd,
 
 int Server::send_packet(Address &remote_addr, Buffer &buf) {
   if (debug::packet_lost(config.tx_loss_prob)) {
-    if (!config.quiet) {
-      std::cerr << "** Simulated outgoing packet loss **" << std::endl;
-    }
+    //if (!config.quiet) {
+      std::cerr << "\n** Simulated outgoing packet loss **\n" << std::endl;
+    //}
     buf.reset();
     return NETWORK_ERR_OK;
   }
