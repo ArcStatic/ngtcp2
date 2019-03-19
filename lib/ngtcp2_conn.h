@@ -362,6 +362,9 @@ struct ngtcp2_conn {
   ngtcp2_settings remote_settings;
   /* decrypt_buf is a buffer which is used to write decrypted data. */
   ngtcp2_array decrypt_buf;
+  //Added for project
+  //RTP current RTP playback timestamp for this stream
+  uint32_t current_pb_deadline;
 };
 
 /*
@@ -400,6 +403,14 @@ ngtcp2_strm *ngtcp2_conn_find_stream(ngtcp2_conn *conn, uint64_t stream_id);
  */
 int ngtcp2_conn_init_stream(ngtcp2_conn *conn, ngtcp2_strm *strm,
                             uint64_t stream_id, void *stream_user_data);
+
+
+/*
+ * ngtcp2_increment_pb_deadline increases the current RTP playback deadline
+ * ie. |current_pb_deadline| member of |conn| increased by |delta|
+ */                         
+//void ngtcp2_increment_pb_deadline(ngtcp2_conn *conn, uint32_t delta);
+
 
 /*
  * ngtcp2_conn_close_stream closes stream |strm|.

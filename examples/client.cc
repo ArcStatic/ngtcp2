@@ -33,7 +33,6 @@
 //included for project
 #include <stdio.h>
 
-
 #include <unistd.h>
 #include <getopt.h>
 #include <sys/types.h>
@@ -321,6 +320,8 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
   //c->rtp_timestamp_ += 3000;
   c->rtp_timestamp_ += 10;
   
+  ngtcp2_increment_pb_deadline(c->conn(), (uint32_t)3000);
+  
   //std::cerr << "RTP CALLBACK, seq: "  << (c->rtp_seqnum_) << ", ts: " << (c->rtp_timestamp_) << std::endl;
 
   c->send_rtp();
@@ -577,11 +578,12 @@ namespace {
 int recv_stream_data(ngtcp2_conn *conn, uint64_t stream_id, int fin,
                      uint64_t offset, const uint8_t *data, size_t datalen,
                      void *user_data, void *stream_user_data) {
-  std::cerr << "recv stream data" << std::endl;
+  //std::cerr << "recv stream data" << std::endl;
   
   //if (!config.quiet) {
     //need to change this to parse RTP headers
-    debug::print_stream_data(stream_id, data, datalen);   
+    //stream data muted for project
+    //debug::print_stream_data(stream_id, data, datalen);   
       
     uint32_t recovered_ts = 0;
     uint32_t recovered_seqnum = 0; 
@@ -1388,7 +1390,7 @@ int Client::on_write(bool retransmit) {
   assert(sendbuf_.left() >= max_pktlen_);
 
   if (retransmit) {
-    std::cerr << "retransmit == true" << std::endl;
+    //std::cerr << "retransmit == true" << std::endl;
     auto rv =
         ngtcp2_conn_on_loss_detection_timer(conn_, util::timestamp(loop_));
     if (rv != 0) {
@@ -2113,7 +2115,7 @@ int Client::send_rtp() {
   auto &rtp_stream = streams_[last_stream_id_];
   
   //append data to the stream buffer
-  std::cerr << "writing to RTP stream..." << std::endl;
+  //std::cerr << "writing to RTP stream..." << std::endl;
   static constexpr uint8_t hw[] = "Test RTP data from client!";
   //buffer = (uint8_t*) malloc(str_size(hw));
   //std::copy(hw, hw + str_size(hw), buffer);
@@ -2121,7 +2123,7 @@ int Client::send_rtp() {
   //rtp_stream->streambuf.emplace_back(&rtp_timestamp_, sizeof(rtp_timestamp_));
   //rtp_stream->streambuf.emplace_back(&rtp_seqnum_, sizeof(rtp_seqnum_));
   //rtp_stream->streambuf.emplace_back(buffer, str_size(hw));
-  std::cerr << "RTP stream written" << std::endl;
+  //std::cerr << "RTP stream written" << std::endl;
   
   //set write event
   ev_feed_event(loop_, &wev_, EV_WRITE);

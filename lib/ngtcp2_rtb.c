@@ -373,6 +373,16 @@ int ngtcp2_rtb_recv_ack(ngtcp2_rtb *rtb, const ngtcp2_ack *fr,
 
   min_ack = largest_ack - fr->first_ack_blklen;
 
+  /*
+  crude project debugging - remove when complete
+  printf("\nrtb_recv check:\n");
+  printf("ack.type: %u\n", fr->type);
+  printf("ack.largest_ack: %lu\n", fr->largest_ack);
+  printf("ack.ack_delay: %lu\n", fr->ack_delay);
+  printf("ack.first_ack_blklen: %zu\n", fr->first_ack_blklen);
+  printf("ts: %lu\n", ts);
+  */
+
   for (; !ngtcp2_ksl_it_end(&it);) {
     key = ngtcp2_ksl_it_key(&it);
     if (min_ack <= (uint64_t)key.i && (uint64_t)key.i <= largest_ack) {

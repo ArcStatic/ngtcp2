@@ -888,27 +888,31 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
   //ngtcp2_stream frm;
   
   //printf("Sent type: %x\n", ent->frc->fr.type);
+  
+  if (ent->flags & NGTCP2_RTB_FLAG_CRYPTO_PKT) {
+    assert(ngtcp2_pkt_handshake_pkt(&ent->hd));
+    conn->rcs.last_hs_tx_pkt_ts = ent->ts;
+  } else {
+    conn->rcs.last_tx_pkt_ts = ent->ts;
+  }
+  //printf("\n!!PACKET SENT!!\n\n");
+  //Break the retransmission timer!
+  //results in chunks of RTP sequence numbers being skipped because payloads are merged
+  ngtcp2_conn_set_loss_detection_timer(conn);
 
   
+  
   it = ngtcp2_ksl_begin(&rtb->ents);
+  //printf("begin: %zu, len: %zu\n", it.i, ngtcp2_ksl_len(&rtb->ents));
   
   //if (it != NULL){
     
-    //go through each item in queue
+    //go through each item in rtb
+    //for (; !ngtcp2_ksl_it_end(&it); ngtcp2_ksl_it_next(&it)) {
     for (; !ngtcp2_ksl_it_end(&it); ngtcp2_ksl_it_next(&it)) {
-      //printf("rtb data: %d \n", *(int*)ngtcp2_ksl_it_get(&it));
       it_ent = ngtcp2_ksl_it_get(&it);
-      //frm = (ngtcp2_stream)it_ent->frc->fr;
-      //printf("rtb data item: %s \n", it_ent->frc->fr->data);
-      //pv = it_ent->frc->fr.stream.data->base;
-      
+
       if ((&it_ent->frc->fr.type != NULL) && (it_ent->frc->fr.type == NGTCP2_FRAME_STREAM)){
-      //if (it_ent->frc->fr.type == NGTCP2_FRAME_MAX_DATA){
-        //printf("rtb data item: %s \n", it_ent->frc->fr.stream.data->base);
-        //printf("rtb data item: %s \n", (const char*)it_ent->frc->fr.stream.data->base);
-        //fwrite((const char*)it_ent->frc->fr.stream.data->base, 1, ngtcp2_vec_len(it_ent->frc->fr.stream.data, sizeof(uint8_t)), stdout);
-        //printf("rtb data item: %u \n", it_ent->frc->fr.stream.data->base[2]);
-        //printf("rtb data item len: %lu \n", ngtcp2_vec_len(it_ent->frc->fr.stream.data, sizeof(uint8_t)));
         printf("STREAM frame\n");
             
         uint32_t recovered_ts = 0;
@@ -936,6 +940,48 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
         printf("sent timestamp (conn): %u\n", recovered_ts);
         printf("sent seqnum (conn): %u\n", recovered_seqnum);
         
+        ngtcp2_ack ack;
+        ngtcp2_tstamp ts;
+        ts = conn->log.last_ts;
+
+        //create fake ack to remove entry from rtb
+        ack.type = NGTCP2_FRAME_ACK;
+        ack.largest_ack = it_ent->hd.pkt_num;
+        //ack.first_ack_blklen = it_ent->pktlen - 1;
+        ack.first_ack_blklen = 1;
+        ack.ack_delay_unscaled = ts - it_ent->ts;
+        ack.ack_delay = ack.ack_delay_unscaled /
+                         (NGTCP2_DURATION_TICK / NGTCP2_MICROSECONDS) /
+                         (1UL << NGTCP2_DEFAULT_ACK_DELAY_EXPONENT);
+        ack.num_blks = 0;
+        
+        /*
+        printf("\nSend check:\n");
+        printf("ack.type: %u\n", ack.type);
+        printf("ack.largest_ack: %lu\n", ack.largest_ack);
+        printf("ack.ack_delay: %lu\n", ack.ack_delay);
+        printf("ack.first_ack_blklen: %zu\n", ack.first_ack_blklen);
+        printf("ts: %lu\n", ts);
+        */
+
+        
+        //try removing packets from rtb without an ack
+        if (recovered_ts >= 300000){
+        //if ((recovered_ts >= 30000) && (recovered_ts <= conn->current_pb_deadline)){
+            //need ngtcp2_ack and ngtcp2_ts
+            //create fake ngtcp2_ack
+            rv = ngtcp2_rtb_recv_ack(rtb, &ack, conn, ts);
+            //ngtcp2_rtb_entry_del(it_ent, rtb->mem);
+            if (rv != 0) {
+              return rv;
+            }
+            printf("!!Packet removed!!\n");
+            //it = ngtcp2_ksl_begin(&rtb->ents);
+            if (it.blk->next == NULL){
+              break;
+            }
+        }
+        
       /*
       } else if (it_ent->frc->fr.type == NGTCP2_FRAME_CRYPTO){
         printf("CRYPTO frame\n");
@@ -950,26 +996,25 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
         printf("Other type of frame\n");
       */
       }
-      
+      //printf("End of rtb iteration %zu\n", it.i);
       
     }
     //end of cleanup section
   //}
-  
-  
-  if (ent->flags & NGTCP2_RTB_FLAG_CRYPTO_PKT) {
-    assert(ngtcp2_pkt_handshake_pkt(&ent->hd));
-    conn->rcs.last_hs_tx_pkt_ts = ent->ts;
-  } else {
-    conn->rcs.last_tx_pkt_ts = ent->ts;
-  }
-  printf("\n!!PACKET SENT!!\n\n");
-  //Break the retransmission timer!
-  //results in chunks of RTP sequence numbers being skipped because payloads are merged
-  ngtcp2_conn_set_loss_detection_timer(conn);
-
   return 0;
 }
+
+/*
+/*
+ * ngtcp2_increment_pb_deadline increases the current RTP playback deadline
+ * ie. |current_pb_deadline| member of |conn| increased by |delta|
+ */                         
+void ngtcp2_increment_pb_deadline(ngtcp2_conn *conn, uint32_t delta){
+  conn->current_pb_deadline += delta;
+  printf("conn->current_pb_deadline: %u\n", conn->current_pb_deadline);
+}
+
+
 
 /*
  * conn_select_pkt_numlen selects shortest packet number encoding

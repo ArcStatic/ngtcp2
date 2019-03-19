@@ -902,6 +902,7 @@ NGTCP2_EXTERN ssize_t ngtcp2_pkt_decode_frame(ngtcp2_frame *dest,
 NGTCP2_EXTERN ssize_t ngtcp2_pkt_encode_frame(uint8_t *out, size_t outlen,
                                               ngtcp2_frame *fr);
 
+
 /**
  * @function
  *
@@ -1549,6 +1550,14 @@ NGTCP2_EXTERN void ngtcp2_conn_del(ngtcp2_conn *conn);
 NGTCP2_EXTERN int ngtcp2_conn_read_handshake(ngtcp2_conn *conn,
                                              const uint8_t *pkt, size_t pktlen,
                                              ngtcp2_tstamp ts);
+
+/**
+ * @function
+ *
+ * ngtcp2_increment_pb_deadline increases the current RTP playback deadline
+ * ie. |current_pb_deadline| member of |conn| increased by |delta|
+ */                         
+NGTCP2_EXTERN void ngtcp2_increment_pb_deadline(ngtcp2_conn *conn, uint32_t delta);
 
 /**
  * @function

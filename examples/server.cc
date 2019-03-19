@@ -702,6 +702,8 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
   h->rtp_timestamp_ += 3000;
   //h->rtp_timestamp_ += 10;
   
+  ngtcp2_increment_pb_deadline(h->conn(), (uint32_t)3000);  
+  
   //std::cerr << "RTP CALLBACK, seq: "  << (c->rtp_seqnum_) << ", ts: " << (c->rtp_timestamp_) << std::endl;
 
   h->send_rtp();
@@ -744,9 +746,9 @@ Handler::Handler(struct ev_loop *loop, SSL_CTX *ssl_ctx, Server *server,
   rttimer_.data = this;
   //CUSTOM RTP TIMER
   //CHANGE REPEAT TO 1/50 LATER!!
-  ev_timer_init(&rtptimer_, write_rtp_cb, 1.0, 1.0);
+  //ev_timer_init(&rtptimer_, write_rtp_cb, 1.0, 1.0);
   //trigger 1s after init, repeat every 1/50 s
-  //ev_timer_init(&rtptimer_, write_rtp_cb, 1.0, (1.0/50.0));
+  ev_timer_init(&rtptimer_, write_rtp_cb, 1.0, (1.0/50.0));
   rtptimer_.data = this;
 }
 
@@ -2045,7 +2047,7 @@ int Handler::start_rtp() {
 }
 
 int Handler::send_rtp() {
-  std::cerr << "RTP function started" << std::endl;
+  //std::cerr << "RTP function started" << std::endl;
   //std::cerr << "last_steam_id = " << last_stream_id_ << std::endl;
   //std::cerr << "streams_ size = " << streams_.size() << std::endl;
   ssize_t nread;
@@ -2056,8 +2058,8 @@ int Handler::send_rtp() {
 
   auto &rtp_stream = streams_[last_stream_id_];
   
-  std::cerr << "writing to RTP stream..." << std::endl;
-  static constexpr uint8_t hw[] = "Test RTP data from server!";
+  //std::cerr << "writing to RTP stream..." << std::endl;
+  //static constexpr uint8_t hw[] = "Test RTP data from server!";
   
   //append RTP sequence number to payload
   for (int i = 0; i < 4; i++){
@@ -2082,7 +2084,7 @@ int Handler::send_rtp() {
   rtp_stream->streambuf.emplace_back(buffer.data(), buffer.size());
   //rtp_stream->streambuf.emplace_back(hw, str_size(hw));
   
-  std::cerr << "RTP stream written" << std::endl;
+  //std::cerr << "RTP stream written" << std::endl;
   
   //rtp_stream->resp_state = RESP_IDLE;
   
