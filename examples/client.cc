@@ -324,7 +324,8 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
   
   //std::cerr << "RTP CALLBACK, seq: "  << (c->rtp_seqnum_) << ", ts: " << (c->rtp_timestamp_) << std::endl;
 
-  c->send_rtp();
+  //don't send anything for now
+  //c->send_rtp();
 
   return;
   
@@ -488,9 +489,9 @@ Client::Client(struct ev_loop *loop, SSL_CTX *ssl_ctx)
   rttimer_.data = this;
   //CUSTOM RTP TIMER
   //CHANGE REPEAT TO 1/50 LATER!!
-  ev_timer_init(&rtptimer_, write_rtp_cb, 1.0, 1.0);
+  //ev_timer_init(&rtptimer_, write_rtp_cb, 1.0, 1.0);
   //trigger 1s after init, repeat every 1/50 s
-  //ev_timer_init(&rtptimer_, write_rtp_cb, 1.0, (1.0/50.0));
+  ev_timer_init(&rtptimer_, write_rtp_cb, 1.0, (1.0/50.0));
   rtptimer_.data = this;
   ev_signal_init(&sigintev_, siginthandler, SIGINT);
 }
@@ -583,7 +584,7 @@ int recv_stream_data(ngtcp2_conn *conn, uint64_t stream_id, int fin,
   //if (!config.quiet) {
     //need to change this to parse RTP headers
     //stream data muted for project
-    //debug::print_stream_data(stream_id, data, datalen);   
+    debug::print_stream_data(stream_id, data, datalen);   
       
     uint32_t recovered_ts = 0;
     uint32_t recovered_seqnum = 0; 
@@ -604,8 +605,8 @@ int recv_stream_data(ngtcp2_conn *conn, uint64_t stream_id, int fin,
       //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
       //buffer.emplace_back(current_byte);
     }
-      std::cerr << "recovered timestamp: " << recovered_ts << std::endl;
-      std::cerr << "recovered sequence number: " << recovered_seqnum << std::endl;
+      std::cerr << "client recovered timestamp: " << recovered_ts << std::endl;
+      std::cerr << "client recovered sequence number: " << recovered_seqnum << std::endl;
   //}
   
   ngtcp2_conn_extend_max_stream_offset(conn, stream_id, datalen);

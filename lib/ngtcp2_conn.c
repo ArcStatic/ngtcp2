@@ -937,8 +937,8 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
           //buffer.emplace_back(current_byte);
         }
         
-        printf("sent timestamp (conn): %u\n", recovered_ts);
-        printf("sent seqnum (conn): %u\n", recovered_seqnum);
+        //printf("sent timestamp (conn): %u\n", recovered_ts);
+        //printf("sent seqnum (conn): %u\n", recovered_seqnum);
         
         ngtcp2_ack ack;
         ngtcp2_tstamp ts;
@@ -966,21 +966,21 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
 
         
         //try removing packets from rtb without an ack
-        if (recovered_ts >= 300000){
+        //if (recovered_ts >= 300000){
         //if ((recovered_ts >= 30000) && (recovered_ts <= conn->current_pb_deadline)){
             //need ngtcp2_ack and ngtcp2_ts
             //create fake ngtcp2_ack
-            rv = ngtcp2_rtb_recv_ack(rtb, &ack, conn, ts);
+            //rv = ngtcp2_rtb_recv_ack(rtb, &ack, conn, ts);
             //ngtcp2_rtb_entry_del(it_ent, rtb->mem);
-            if (rv != 0) {
-              return rv;
-            }
-            printf("!!Packet removed!!\n");
+            //if (rv != 0) {
+              //return rv;
+            //}
+            //printf("!!Packet removed!!\n");
             //it = ngtcp2_ksl_begin(&rtb->ents);
-            if (it.blk->next == NULL){
-              break;
-            }
-        }
+            //if (it.blk->next == NULL){
+              //break;
+            //}
+        //}
         
       /*
       } else if (it_ent->frc->fr.type == NGTCP2_FRAME_CRYPTO){
@@ -5006,27 +5006,164 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
   
   
   //problems caused here!
-  printf("fr->offset: %lu, rx_offset: %lu\n", fr->offset, rx_offset);
   //project modification here
   //this line causes blocking behaviour of streams!
-  //if (fr->offset <= rx_offset) {
-  if (1) {
+  
+  /*
+  uint64_t gap_start;
+  uint64_t gap_end;
+  //gap_len = (&strm->rob);
+  
+  ngtcp2_psl_it it = ngtcp2_psl_begin(&strm->rob.gappsl);
+  ngtcp2_rob_gap *g;
+
+  if (ngtcp2_psl_it_end(&it)) {
+    gap_start = UINT64_MAX;
+  }
+
+  g = ngtcp2_psl_it_get(&it);
+
+  gap_start = g->range.begin;
+  gap_end =  g->range.end;
+  
+  //gap_start = ngtcp2_psl_begin(&strm->rob.gappsl);
+  printf("gap_start: %lu, gap_end: %lu, gap_len: %lu\n", gap_start, gap_end, (gap_start - gap_end));
+  */
+  
+  //forces stream to retrieve data as it arrives, regardless of gaps    
+  //TODO: make this wait for data if there is time before playback deadline
+  
+        
+  uint32_t recovered_ts = 0;
+  uint32_t recovered_seqnum = 0; 
+  //uint8_t *data;
+  ngtcp2_psl_it it;
+  ngtcp2_rob_data *d;
+  //int rv;
+
+  //printf("starting fr->offset: %lu, rx_offset: %lu\n", fr->offset, rx_offset);
+  it = ngtcp2_psl_begin(&strm->rob.datapsl);
+  //printf("len of datapsl: %zu\n", ngtcp2_psl_len(&strm->rob.datapsl));
+  //d = ngtcp2_psl_it_get(&it);
+  d = ngtcp2_psl_it_get(&it);
+  uint64_t pb_cutoff;
+  pb_cutoff = fr->offset;
+  
+  //for (; !ngtcp2_psl_it_end(&it); ngtcp2_psl_it_next(&it)){
+  //for (int j = fr->offset; j < rx_offset; j+=8){
+  if (ngtcp2_psl_len(&strm->rob.datapsl) > 0){
+    for (int j = rx_offset; j < fr->offset; j+=8){
+      //recover RTP timestamp from payload 
+      
+      for (int k = 0; k < 4; k++){
+        //32-bit, big-endian
+        //recovered_ts += ((*(d->begin[j+k])) << ((3 - k) * 8));
+        recovered_ts += ((d->begin[j+k]) << ((3 - k) * 8));
+      }
+      
+      //recover RTP sequence number from payload 
+      for (int k = 4; k < 8; k++){
+        //32-bit, big-endian
+        recovered_seqnum += ((d->begin[j+k]) << ((7 - k) * 8));
+      }
+      
+      //printf("rob item timestamp (conn): %u\n", recovered_ts);
+      //printf("rob item seqnum (conn): %u\n", recovered_seqnum);
+      
+      //adjust offset to effectively discard 'stale' packets
+      if (recovered_ts < conn->current_pb_deadline){
+        //printf("rx_offset adjusted from %lu to %u\n", rx_offset, j);
+        //ngtcp2_rob_remove_prefix(&strm->rob, rx_offset);
+        //ngtcp2_rob_remove_prefix(&strm->rob, j);
+        //rx_offset = j;
+        //strm->last_rx_offset = j;
+        //printf("!!fr->offset adjusted (rob)\n");
+        //fr->offset = (j+8);
+        //pb_cutoff = j;
+      }
+    }
+  }
+  
+  //fr->offset = rx_offset;
+  //printf("fr->offset adjusted from %lu to %lu\n", fr->offset, pb_cutoff);
+  //fr->offset = pb_cutoff;
+  
+  if (fr->offset <= rx_offset) {
+  //if (1) {
     //printf("ERROR TRACE 7\n");
+
+    //TODO: reactivate this
+    //fr->offset = rx_offset;
     
-    //TODO: make this pass more than one unit of data at a time to the application
-    fr->offset = rx_offset;
-    
+    //ncut = minimum offset for data not yet received - current offset of data received by stream
     size_t ncut = rx_offset - fr->offset;
-    uint64_t offset = rx_offset;
+    //uint64_t offset = rx_offset;
     const uint8_t *data;
     int fin;
+    
+    recovered_ts = 0;
+    recovered_seqnum = 0;
 
     if (fr->datacnt) {
       //printf("ERROR TRACE 8\n");
       data = fr->data[0].base + ncut;
       datalen -= ncut;
 
+        //check frame on arrival
+        //recover RTP timestamp from payload 
+        
+        for (int k = 0; k < 4; k++){
+          //32-bit, big-endian
+          //recovered_ts += ((*(d->begin[j+k])) << ((3 - k) * 8));
+          recovered_ts += ((*(data + k)) << ((3 - k) * 8));
+        }
+        
+        //recover RTP sequence number from payload 
+        for (int k = 4; k < 8; k++){
+          //32-bit, big-endian
+          recovered_seqnum += ((*(data + k)) << ((7 - k) * 8));
+        }
+        
+        //printf("fr item timestamp (conn): %u\n", recovered_ts);
+        //printf("fr item seqnum (conn): %u\n", recovered_seqnum);
+        
+        //adjust offset to effectively discard 'stale' packets
+        if (recovered_ts < conn->current_pb_deadline){
+          //printf("rx_offset adjusted from %lu to %u\n", rx_offset, j);
+          //ngtcp2_rob_remove_prefix(&strm->rob, rx_offset);
+          //ngtcp2_rob_remove_prefix(&strm->rob, j);
+          //rx_offset = j;
+          //strm->last_rx_offset = j;
+          //printf("!!fr->offset adjusted (fr)\n");
+          fr->offset += 8;
+          datalen -= 8;
+          rx_offset += 8;
+          //pb_cutoff = j;
+        }
+      
+      /*
+      //recover RTP timestamp from payload 
+      for (int i = 0; i < 4; i++){
+        //32-bit, big-endian
+        recovered_ts += ((*(data + i)) << ((3 - i) * 8));
+        //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
+        //buffer.emplace_back(current_byte);
+      }
+      
+      //recover RTP sequence number from payload 
+      for (int i = 4; i < 8; i++){
+        //32-bit, big-endian
+        recovered_seqnum += ((*(data + i)) << ((7 - i) * 8));
+        //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
+        //buffer.emplace_back(current_byte);
+      }
+      
+      printf("recv inspection timestamp (conn): %u\n", recovered_ts);
+      printf("recv inspection seqnum (conn): %u\n", recovered_seqnum);
+      */
+
       rx_offset += datalen;
+      //remove content from reorder buffer
       rv = ngtcp2_rob_remove_prefix(&strm->rob, rx_offset);
       if (rv != 0) {
         //printf("ERROR TRACE 9\n");
@@ -5044,13 +5181,15 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
     if (fin || datalen) {
       //printf("ERROR TRACE 11\n");
       //fr->offset = rx_offset;
-      rv = conn_call_recv_stream_data(conn, strm, fin, offset, data, datalen);
+      rv = conn_call_recv_stream_data(conn, strm, fin, rx_offset, data, datalen);
+      //rv = conn_call_recv_stream_data(conn, strm, fin, offset, data, datalen);
       if (rv != 0) {
         //printf("ERROR TRACE 12\n");
         return rv;
       }
 
       rv = conn_emit_pending_stream_data(conn, strm, rx_offset);
+      //printf("data emitted: fr->offset: %lu, rx_offset: %lu\n", fr->offset, rx_offset);
       if (rv != 0) {
         //printf("ERROR TRACE 13\n");
         return rv;

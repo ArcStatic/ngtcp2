@@ -27,6 +27,9 @@
 #include <string.h>
 #include <assert.h>
 
+//included for project
+#include <stdio.h>
+
 #include "ngtcp2_macro.h"
 
 int ngtcp2_rob_gap_new(ngtcp2_rob_gap **pg, uint64_t begin, uint64_t end,
@@ -253,6 +256,31 @@ int ngtcp2_rob_remove_prefix(ngtcp2_rob *rob, uint64_t offset) {
 
   for (; !ngtcp2_psl_it_end(&it);) {
     d = ngtcp2_psl_it_get(&it);
+    uint32_t recovered_ts = 0;
+    uint32_t recovered_seqnum = 0; 
+    
+    for (int k = 0; k < 4; k++){
+      //32-bit, big-endian
+      //recovered_ts += ((*(d->begin + k)) << ((3 - k) * 8));
+      recovered_ts += ((*(d->begin + k)) << ((3 - k) * 8));
+    }
+    
+    //data is one huge buffer per stream
+    //recover RTP sequence number from payload 
+    for (int k = 4; k < 8; k++){
+      //32-bit, big-endian
+      //recovered_seqnum += ((*(d->begin + k)) << ((7 - k) * 8));
+    }
+    
+    //printf("rob data:");
+    for (int j=0; j < ngtcp2_range_len(&d->range); j++){
+      //printf("%u", d->begin[j]);
+    }
+    
+    //printf("\nrob item timestamp (conn): %u\n", recovered_ts);
+    //printf("rob item seqnum (conn): %u\n", recovered_seqnum);
+  
+    
     if (offset < d->range.begin + rob->chunk) {
       return 0;
     }
