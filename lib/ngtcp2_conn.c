@@ -895,7 +895,7 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
   } else {
     conn->rcs.last_tx_pkt_ts = ent->ts;
   }
-  //printf("\n!!PACKET SENT!!\n\n");
+  printf("\n!!PACKET SENT!!\n\n");
   //Break the retransmission timer!
   //results in chunks of RTP sequence numbers being skipped because payloads are merged
   ngtcp2_conn_set_loss_detection_timer(conn);
@@ -903,7 +903,7 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
   
   
   it = ngtcp2_ksl_begin(&rtb->ents);
-  //printf("begin: %zu, len: %zu\n", it.i, ngtcp2_ksl_len(&rtb->ents));
+  printf("begin: %zu, len: %zu\n", it.i, ngtcp2_ksl_len(&rtb->ents));
   
   //if (it != NULL){
     
@@ -937,8 +937,8 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
           //buffer.emplace_back(current_byte);
         }
         
-        //printf("sent timestamp (conn): %u\n", recovered_ts);
-        //printf("sent seqnum (conn): %u\n", recovered_seqnum);
+        printf("sent timestamp (conn): %u\n", recovered_ts);
+        printf("sent seqnum (conn): %u\n", recovered_seqnum);
         
         ngtcp2_ack ack;
         ngtcp2_tstamp ts;
@@ -955,6 +955,7 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
                          (1UL << NGTCP2_DEFAULT_ACK_DELAY_EXPONENT);
         ack.num_blks = 0;
         
+        printf("false ACK created\n");
         /*
         printf("\nSend check:\n");
         printf("ack.type: %u\n", ack.type);
@@ -968,19 +969,22 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
         //try removing packets from rtb without an ack
         //if (recovered_ts >= 300000){
         //if ((recovered_ts >= 30000) && (recovered_ts <= conn->current_pb_deadline)){
+        if (recovered_ts <= conn->current_pb_deadline){
+           printf("stale packet detected\n");
             //need ngtcp2_ack and ngtcp2_ts
             //create fake ngtcp2_ack
-            //rv = ngtcp2_rtb_recv_ack(rtb, &ack, conn, ts);
-            //ngtcp2_rtb_entry_del(it_ent, rtb->mem);
-            //if (rv != 0) {
-              //return rv;
-            //}
-            //printf("!!Packet removed!!\n");
-            //it = ngtcp2_ksl_begin(&rtb->ents);
-            //if (it.blk->next == NULL){
-              //break;
-            //}
-        //}
+            //segfault being caused here...
+            rv = ngtcp2_rtb_recv_ack(rtb, &ack, conn, ts);
+            ngtcp2_rtb_entry_del(it_ent, rtb->mem);
+            if (rv != 0) {
+              return rv;
+            }
+            printf("!!Packet removed!!\n");
+            it = ngtcp2_ksl_begin(&rtb->ents);
+            if (it.blk->next == NULL){
+              break;
+            }
+        }
         
       /*
       } else if (it_ent->frc->fr.type == NGTCP2_FRAME_CRYPTO){
@@ -5139,36 +5143,51 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
           datalen -= 8;
           rx_offset += 8;
           //pb_cutoff = j;
+        //otherwise, pass data to application
+        //one read per packet - should not be coalesced
+        } else {
+          //rv = ngtcp2_rob_remove_prefix(&strm->rob, rx_offset);
+          if (rv != 0) {
+            //printf("ERROR TRACE 9\n");
+            return rv;
+          }
+          
+          datalen -= 8;
+          rv = ngtcp2_rob_remove_prefix(&strm->rob, rx_offset);
+          
+          rv = conn_call_recv_stream_data(conn, strm, fin, rx_offset, data, 8);
+          //rv = conn_call_recv_stream_data(conn, strm, fin, rx_offset, data, datalen);
+          //rv = conn_call_recv_stream_data(conn, strm, fin, offset, data, datalen);
+          if (rv != 0) {
+            //printf("ERROR TRACE 12\n");
+            return rv;
+          }
+
+          rv = conn_emit_pending_stream_data(conn, strm, rx_offset);
+          //printf("data emitted: fr->offset: %lu, rx_offset: %lu\n", fr->offset, rx_offset);
+          if (rv != 0) {
+            //printf("ERROR TRACE 13\n");
+            return rv;
+          }
+          //fr->offset += 8;
+          rx_offset += 8;
         }
       
       /*
-      //recover RTP timestamp from payload 
-      for (int i = 0; i < 4; i++){
-        //32-bit, big-endian
-        recovered_ts += ((*(data + i)) << ((3 - i) * 8));
-        //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
-        //buffer.emplace_back(current_byte);
-      }
-      
-      //recover RTP sequence number from payload 
-      for (int i = 4; i < 8; i++){
-        //32-bit, big-endian
-        recovered_seqnum += ((*(data + i)) << ((7 - i) * 8));
-        //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
-        //buffer.emplace_back(current_byte);
-      }
-      
       printf("recv inspection timestamp (conn): %u\n", recovered_ts);
       printf("recv inspection seqnum (conn): %u\n", recovered_seqnum);
       */
 
-      rx_offset += datalen;
+      //rx_offset += datalen;
       //remove content from reorder buffer
-      rv = ngtcp2_rob_remove_prefix(&strm->rob, rx_offset);
-      if (rv != 0) {
+      rv = ngtcp2_rob_remove_prefix(&strm->rob, rx_offset + datalen);
+      //rv = ngtcp2_rob_remove_prefix(&strm->rob, rx_offset);
+      //if (rv != 0) {
         //printf("ERROR TRACE 9\n");
-        return rv;
-      }
+        //return rv;
+      //}
+      
+      
     } else {
       //printf("ERROR TRACE 10\n");
       data = NULL;
@@ -5179,6 +5198,7 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
           rx_offset == strm->last_rx_offset;
 
     if (fin || datalen) {
+      /*
       //printf("ERROR TRACE 11\n");
       //fr->offset = rx_offset;
       rv = conn_call_recv_stream_data(conn, strm, fin, rx_offset, data, datalen);
@@ -5194,6 +5214,7 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
         //printf("ERROR TRACE 13\n");
         return rv;
       }
+      */
     }
   } else if (fr->datacnt) {
     //printf("ERROR TRACE 14\n");

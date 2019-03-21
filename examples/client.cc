@@ -2564,6 +2564,9 @@ int run(Client &c, const char *addr, const char *port) {
       c.make_stream_early();
     }
   }
+  
+  //increment playabck deadline ahread of serever slightly to test if redordering happens
+  ngtcp2_increment_pb_deadline(c.conn(), (uint32_t)12000);
 
   // For 0-RTT
   auto rv = c.write_0rtt_streams();

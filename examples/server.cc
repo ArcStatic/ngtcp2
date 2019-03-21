@@ -699,7 +699,11 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
   
   h->rtp_seqnum_ += 1;
   //50fps, assume sampling rate of 8000Hz
+  //slower timing - behind client, most traffic should be rejected
+  //h->rtp_timestamp_ += 1000;
+  //regular timing - in sync with client, should be a small fraction of traffic rejected
   h->rtp_timestamp_ += 3000;
+  //faster timing - ahead of client, most traffic should be accepted
   //h->rtp_timestamp_ += 5000;
   //h->rtp_timestamp_ += 10;
   
