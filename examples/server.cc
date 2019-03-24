@@ -702,9 +702,11 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
   //slower timing - behind client, most traffic should be rejected
   //h->rtp_timestamp_ += 1000;
   //regular timing - in sync with client, should be a small fraction of traffic rejected
-  h->rtp_timestamp_ += 3000;
+  //h->rtp_timestamp_ += 3500;
+  //h->rtp_timestamp_ += 3010;
+  //h->rtp_timestamp_ += 3000;
   //faster timing - ahead of client, most traffic should be accepted
-  //h->rtp_timestamp_ += 5000;
+  h->rtp_timestamp_ += 5000;
   //h->rtp_timestamp_ += 10;
   
   ngtcp2_increment_pb_deadline(h->conn(), (uint32_t)3000);  
@@ -1998,8 +2000,9 @@ int Handler::send_greeting() {
 
   auto stream = std::make_unique<Stream>(stream_id);
 
-  static constexpr uint8_t hw[] = "Welcome to the RTP server!";
-  stream->streambuf.emplace_back(hw, str_size(hw));
+  //static constexpr uint8_t hw[] = "Welcome to the RTP server!";
+  //static constexpr uint8_t hw[] = "2";
+  //stream->streambuf.emplace_back(hw, str_size(hw));
   //stream->should_send_fin = true;
   //stream->resp_state = RESP_COMPLETED;
   stream->resp_state = RESP_IDLE;

@@ -365,6 +365,9 @@ struct ngtcp2_conn {
   //Added for project
   //RTP current RTP playback timestamp for this stream
   uint32_t current_pb_deadline;
+  //Maximum offset of data delivered to application
+  //needed to allow application to wait on data which still has time to arrive
+  uint32_t max_delivered_to_app;
 };
 
 /*

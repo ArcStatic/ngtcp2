@@ -318,9 +318,13 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
   c->rtp_seqnum_ += 1;
   //50fps, assume sampling rate of 8000Hz
   //c->rtp_timestamp_ += 3000;
-  c->rtp_timestamp_ += 10;
+  //c->rtp_timestamp_ += 10;
+  c->rtp_timestamp_ += 3000;
   
-  ngtcp2_increment_pb_deadline(c->conn(), (uint32_t)3000);
+  //limit deadline increment to see if data gets emitted as expected
+  if (c->rtp_timestamp_ < 100000){
+    ngtcp2_increment_pb_deadline(c->conn(), (uint32_t)3000);
+  }
   
   //std::cerr << "RTP CALLBACK, seq: "  << (c->rtp_seqnum_) << ", ts: " << (c->rtp_timestamp_) << std::endl;
 
@@ -2566,7 +2570,7 @@ int run(Client &c, const char *addr, const char *port) {
   }
   
   //increment playabck deadline ahread of serever slightly to test if redordering happens
-  ngtcp2_increment_pb_deadline(c.conn(), (uint32_t)12000);
+  //ngtcp2_increment_pb_deadline(c.conn(), (uint32_t)12000);
 
   // For 0-RTT
   auto rv = c.write_0rtt_streams();

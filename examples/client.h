@@ -231,8 +231,8 @@ public:
   
   // RTP timestamp and sequence numbers
   //TODO make these 32-bit - currently issues with sendbuf
-  uint8_t rtp_timestamp_;
-  uint8_t rtp_seqnum_;
+  uint32_t rtp_timestamp_;
+  uint32_t rtp_seqnum_;
 
 private:
   Address local_addr_;
