@@ -5057,7 +5057,8 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
   //for (; !ngtcp2_psl_it_end(&it); ngtcp2_psl_it_next(&it)){
   //for (int j = fr->offset; j < rx_offset; j+=8){
   if (ngtcp2_psl_len(&strm->rob.datapsl) > 0){
-    for (int j = rx_offset; j < fr->offset; j+=8){
+    //for (int j = rx_offset; j < fr->offset; j+=8){
+    for (int j = conn->max_delivered_to_app; j < fr->offset; j+=8){
       //recover RTP timestamp from payload 
       
       for (int k = 0; k < 4; k++){
@@ -5174,11 +5175,11 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
           printf("\nstale packet detected - offsets advanced\n\n");
           
           //if this packet has arrived after its playback deadline but before the next playable packet has arrived, increment offset which stream will be read at
-          if (fr->offset > conn->max_delivered_to_app){
+          if (fr->offset >= conn->max_delivered_to_app){
             //conn->max_delivered_to_app = fr->offset + 8;
             //strm->last_rx_offset = fr->offset + 8;
-            conn->max_delivered_to_app = fr->offset;
-            strm->last_rx_offset = fr->offset;
+            conn->max_delivered_to_app = fr->offset + 8;
+            strm->last_rx_offset = fr->offset + 8;
           }
           //return ngtcp2_conn_close_stream_if_shut_rdwr(conn, strm, NGTCP2_NO_ERROR);
           
@@ -5193,6 +5194,7 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
         } else {
           //rv = ngtcp2_rob_remove_prefix(&strm->rob, rx_offset);
           //add packet to reorder buffer
+          printf("new frame added to reorder buffer\n");
           rv = ngtcp2_strm_recv_reordering(strm, fr->data[0].base, fr->data[0].len,fr->offset);
           if (rv != 0) {
             //printf("ERROR TRACE 9\n");
@@ -5215,14 +5217,15 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
             //ngtcp2_rob_data *d;
             //d = ngtcp2_psl_it_get(&it);
             //if(d->begin != NULL){
-            for (int i = conn->max_delivered_to_app; i < strm->last_rx_offset; i += 8){
+            //for (int i = conn->max_delivered_to_app; i < strm->last_rx_offset; i += 8){
+            for (int i = conn->max_delivered_to_app; i <= strm->last_rx_offset; i += 8){
               printf("for loop entered\n");
               it = ngtcp2_psl_begin(&strm->rob.datapsl);
               printf("it found\n");
               ngtcp2_rob_data *d;
               d = ngtcp2_psl_it_get(&it);
               printf("d found\n");
-              data = d->begin + conn->max_delivered_to_app;
+              data = d->begin + i;
               printf("data found\n");
               //data = fr->data[0].base + ncut;
               //datalen -= ncut;
@@ -5235,6 +5238,21 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
               for (int k = 0; k < 4; k++){
                 //32-bit, big-endian
                 //recovered_ts += ((*(d->begin[j+k])) << ((3 - k) * 8));
+                recovered_ts += ((d->begin[i+k]) << ((3 - k) * 8));
+              }
+              
+              //recover RTP sequence number from payload 
+              for (int k = 4; k < 8; k++){
+                //32-bit, big-endian
+                recovered_seqnum += ((d->begin[i+k]) << ((7 - k) * 8));
+              }
+              
+              printf("loop item timestamp (conn): %u\n", recovered_ts);
+              printf("loop item seqnum (conn): %u\n", recovered_seqnum);
+              /*
+              for (int k = 0; k < 4; k++){
+                //32-bit, big-endian
+                //recovered_ts += ((*(d->begin[j+k])) << ((3 - k) * 8));
                 recovered_ts += ((*(data + k)) << ((3 - k) * 8));
               }
               
@@ -5243,12 +5261,13 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
                 //32-bit, big-endian
                 recovered_seqnum += ((*(data + k)) << ((7 - k) * 8));
               }
-              
               printf("loop item timestamp (conn): %u\n", recovered_ts);
               printf("loop item seqnum (conn): %u\n", recovered_seqnum);
+              */
+              
             //}
               if (recovered_ts > (conn->current_pb_deadline + 3000)){
-                printf("break - wait for potential data to arrive\n");
+                printf("\n\nbreak - wait for potential data to arrive\n\n");
                 break;
               }
               printf("recv stream data\n");
@@ -5256,7 +5275,8 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
               //pass non-zero items to application
               if ((recovered_ts != 0) && (recovered_ts != 0)){
                 //seems to pass a specific section of data to the application
-                rv = conn_call_recv_stream_data(conn, strm, fin, conn->max_delivered_to_app, data, 8);
+                //rv = conn_call_recv_stream_data(conn, strm, fin, conn->max_delivered_to_app, data, 8);
+                rv = conn_call_recv_stream_data(conn, strm, fin, i+8, data, 8);
                 //conn->max_delivered_to_app += 8;
                 //rv = conn_call_recv_stream_data(conn, strm, fin, rx_offset, data, 8);
                 //rv = conn_call_recv_stream_data(conn, strm, fin, rx_offset, data, 16);
@@ -5271,9 +5291,12 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
                 //printf("emit stream data\n");
                 //seems to emit all existing stream data up to the first gap, not just a specific range
                 //rv = conn_emit_pending_stream_data(conn, strm, conn->max_delivered_to_app);
+                
+                conn->max_delivered_to_app = (i + 8);
+                rv = ngtcp2_rob_remove_prefix(&strm->rob, conn->max_delivered_to_app);
               }
-              rv = ngtcp2_rob_remove_prefix(&strm->rob, conn->max_delivered_to_app);
-              conn->max_delivered_to_app += 8;
+              //rv = ngtcp2_rob_remove_prefix(&strm->rob, conn->max_delivered_to_app);
+              //conn->max_delivered_to_app += 8;
               //printf("data emitted: fr->offset: %lu, rx_offset: %lu\n", fr->offset, rx_offset);
               if (rv != 0) {
                 //printf("ERROR TRACE 13\n");

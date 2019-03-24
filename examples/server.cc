@@ -703,10 +703,10 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
   //h->rtp_timestamp_ += 1000;
   //regular timing - in sync with client, should be a small fraction of traffic rejected
   //h->rtp_timestamp_ += 3500;
-  //h->rtp_timestamp_ += 3010;
+  h->rtp_timestamp_ += 3010;
   //h->rtp_timestamp_ += 3000;
   //faster timing - ahead of client, most traffic should be accepted
-  h->rtp_timestamp_ += 5000;
+  //h->rtp_timestamp_ += 5000;
   //h->rtp_timestamp_ += 10;
   
   ngtcp2_increment_pb_deadline(h->conn(), (uint32_t)3000);  

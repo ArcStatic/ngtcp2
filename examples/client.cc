@@ -322,9 +322,9 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
   c->rtp_timestamp_ += 3000;
   
   //limit deadline increment to see if data gets emitted as expected
-  if (c->rtp_timestamp_ < 100000){
+  //if (c->rtp_timestamp_ < 100000){
     ngtcp2_increment_pb_deadline(c->conn(), (uint32_t)3000);
-  }
+  //}
   
   //std::cerr << "RTP CALLBACK, seq: "  << (c->rtp_seqnum_) << ", ts: " << (c->rtp_timestamp_) << std::endl;
 
