@@ -5009,367 +5009,155 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
     }
   }
   
-  
-  //problems caused here!
-  //project modification here
+  //project modifications here
   //this line causes blocking behaviour of streams!
-  
-  /*
-  uint64_t gap_start;
-  uint64_t gap_end;
-  //gap_len = (&strm->rob);
-  
-  ngtcp2_psl_it it = ngtcp2_psl_begin(&strm->rob.gappsl);
-  ngtcp2_rob_gap *g;
-
-  if (ngtcp2_psl_it_end(&it)) {
-    gap_start = UINT64_MAX;
-  }
-
-  g = ngtcp2_psl_it_get(&it);
-
-  gap_start = g->range.begin;
-  gap_end =  g->range.end;
-  
-  //gap_start = ngtcp2_psl_begin(&strm->rob.gappsl);
-  printf("gap_start: %lu, gap_end: %lu, gap_len: %lu\n", gap_start, gap_end, (gap_start - gap_end));
-  */
-  
-  //forces stream to retrieve data as it arrives, regardless of gaps    
-  //TODO: make this wait for data if there is time before playback deadline
-  
-        
+  ngtcp2_psl_it it;
   uint32_t recovered_ts = 0;
   uint32_t recovered_seqnum = 0; 
-  //uint8_t *data;
-  ngtcp2_psl_it it;
-  ngtcp2_rob_data *d;
-  //int rv;
 
-  printf("starting fr->offset: %lu, rx_offset: %lu\n", fr->offset, rx_offset);
-  it = ngtcp2_psl_begin(&strm->rob.datapsl);
-  //printf("len of datapsl: %zu\n", ngtcp2_psl_len(&strm->rob.datapsl));
-  //d = ngtcp2_psl_it_get(&it);
-  d = ngtcp2_psl_it_get(&it);
-  uint64_t pb_cutoff;
-  pb_cutoff = fr->offset;
+  const uint8_t *data;
+  int fin;
   
-  //for (; !ngtcp2_psl_it_end(&it); ngtcp2_psl_it_next(&it)){
-  //for (int j = fr->offset; j < rx_offset; j+=8){
-  if (ngtcp2_psl_len(&strm->rob.datapsl) > 0){
-    //for (int j = rx_offset; j < fr->offset; j+=8){
-    for (int j = conn->max_delivered_to_app; j < fr->offset; j+=8){
+  recovered_ts = 0;
+  recovered_seqnum = 0;
+  
+  printf("---------------------------------------------------------------------\n");
+  
+  if (fr->datacnt) {
+    //printf("ERROR TRACE 8\n");
+    //data = fr->data[0].base + ncut;
+    data = fr->data[0].base;
+    //datalen -= ncut;
+
+      //check frame on arrival
       //recover RTP timestamp from payload 
-      
       for (int k = 0; k < 4; k++){
         //32-bit, big-endian
-        //recovered_ts += ((*(d->begin[j+k])) << ((3 - k) * 8));
-        recovered_ts += ((d->begin[j+k]) << ((3 - k) * 8));
+        recovered_ts += ((*(data + k)) << ((3 - k) * 8));
       }
       
       //recover RTP sequence number from payload 
       for (int k = 4; k < 8; k++){
         //32-bit, big-endian
-        recovered_seqnum += ((d->begin[j+k]) << ((7 - k) * 8));
+        recovered_seqnum += ((*(data + k)) << ((7 - k) * 8));
       }
       
-      printf("rob item timestamp (conn): %u\n", recovered_ts);
-      printf("rob item seqnum (conn): %u\n", recovered_seqnum);
+      printf("newly arrived fr timestamp (conn): %u\n", recovered_ts);
+      printf("newly arrived fr seqnum (conn): %u\n", recovered_seqnum);
       
-      //adjust offset to effectively discard 'stale' packets
+      //check if a non-stale frame has arrived in time to 
+      if (recovered_ts > (conn->current_pb_deadline + 3000)){
+        printf("\n\nstrm->last_rx_offset adjusted\n");
+        if (fr->offset > strm->last_rx_offset){
+          strm->last_rx_offset = fr->offset;
+        }
+      }
+      
+      
+      //handle stale frames
       if (recovered_ts < conn->current_pb_deadline){
-        //printf("rx_offset adjusted from %lu to %u\n", rx_offset, j);
-        //ngtcp2_rob_remove_prefix(&strm->rob, rx_offset);
-        //ngtcp2_rob_remove_prefix(&strm->rob, j);
-        //rx_offset = j;
-        //strm->last_rx_offset = j;
-        //printf("!!fr->offset adjusted (rob)\n");
-        //fr->offset = (j+8);
-        //pb_cutoff = j;
+        printf("\nstale packet detected - offsets advanced\n\n");
+        
+        //if this frame has arrived after its playback deadline but before the next playable frame has arrived, increment offset which stream will be read at
+        if (fr->offset >= conn->max_delivered_to_app){
+          conn->max_delivered_to_app = fr->offset + 8;
+          strm->last_rx_offset = fr->offset + 8;
+        }
+
+      //otherwise, add non-stale frame to reorder buffer
+      } else {
+        printf("new frame added to reorder buffer\n");
+        rv = ngtcp2_strm_recv_reordering(strm, fr->data[0].base, fr->data[0].len,fr->offset);
+        if (rv != 0) {
+          return rv;
+        }
       }
-    }
-  }
-  
-  //fr->offset = rx_offset;
-  //printf("fr->offset adjusted from %lu to %lu\n", fr->offset, pb_cutoff);
-  //fr->offset = pb_cutoff;
-  
-  //if (fr->offset <= rx_offset) {
-  //fr->offset = rx_offset;
-  if (1) {
-    //printf("ERROR TRACE 7\n");
+        
+      printf("starting max_delivered_to_app: %u\n", conn->max_delivered_to_app);
+      //go through all buffered data and deliver to app if frame is close to playback deadline
+      //break if there's a gap
+      //TODO: pass several frames to application at the same time if there's no gap
+      for (int i = conn->max_delivered_to_app; i <= strm->last_rx_offset; i += 8){
+        it = ngtcp2_psl_begin(&strm->rob.datapsl);
+        ngtcp2_rob_data *d;
+        d = ngtcp2_psl_it_get(&it);
+        //data = d->begin + i;
 
-    //TODO: reactivate this
-    //fr->offset = rx_offset;
-    
-    //ncut = minimum offset for data not yet received - current offset of data received by stream
-    size_t ncut = rx_offset - fr->offset;
-    //size_t ncut = fr->offset - rx_offset;
-    //uint64_t offset = rx_offset;
-    const uint8_t *data;
-    int fin;
-    
-    recovered_ts = 0;
-    recovered_seqnum = 0;
-
-    if (fr->datacnt) {
-      //printf("ERROR TRACE 8\n");
-      //data = fr->data[0].base + ncut;
-      data = fr->data[0].base;
-      //datalen -= ncut;
-
-        //check frame on arrival
-        //recover RTP timestamp from payload 
+        //check each packet held in reorder buffer
+        //recover RTP timestamp from stored packet
+        recovered_ts = 0;
+        recovered_seqnum = 0;
         
         for (int k = 0; k < 4; k++){
           //32-bit, big-endian
-          //recovered_ts += ((*(d->begin[j+k])) << ((3 - k) * 8));
-          recovered_ts += ((*(data + k)) << ((3 - k) * 8));
+          recovered_ts += ((d->begin[i+k]) << ((3 - k) * 8));
         }
         
         //recover RTP sequence number from payload 
         for (int k = 4; k < 8; k++){
           //32-bit, big-endian
-          recovered_seqnum += ((*(data + k)) << ((7 - k) * 8));
+          recovered_seqnum += ((d->begin[i+k]) << ((7 - k) * 8));
         }
         
-        printf("fr item timestamp (conn): %u\n", recovered_ts);
-        printf("fr item seqnum (conn): %u\n", recovered_seqnum);
-        
-        //check if there is time to wait for a retransmission
-        //ie. if the timestamp recovered is larger than the playback deadline, there might be other frames which can be received before the frame is needed
-        //hard-coded single frame example for now
-        
-        //rx_offset = fr->offset;
-        //strm->last_rx_offset = rx_offset;
-        
-        if (recovered_ts > (conn->current_pb_deadline + 3000)){
-          //do not release data - wait for receipt of next packet
-          printf("\n\nWaiting - no data released.\n");
-          //add packet to reorder buffer
-          //rv = ngtcp2_strm_recv_reordering(strm, fr->data[0].base, fr->data[0].len,fr->offset);
-          //rv = ngtcp2_strm_recv_reordering(strm, fr->data[0].base, fr->data[0].len,fr->offset);
-          //rx_offset +=8;
-          //strm->last_rx_offset = rx_offset;
-          
-          if (fr->offset > strm->last_rx_offset){
-            strm->last_rx_offset = fr->offset;
-          }
-          
-          //printf("return point fr->offset: %lu, rx_offset: %lu\n\n", fr->offset, rx_offset);
-          //return ngtcp2_conn_close_stream_if_shut_rdwr(conn, strm, NGTCP2_NO_ERROR);
-          //return 0;
+        printf("buffered item timestamp (conn): %u\n", recovered_ts);
+        printf("buffered item seqnum (conn): %u\n", recovered_seqnum);
+
+        //if there is time for an absent frame to arrive, break and don't deliver data
+        //only break if there is actually a gap, continue delivering data if not
+        //TODO: find out why some payloads have abnormally large timestamps and seqnum 0
+        //crude fix deployed in last two tests of if condition for now
+        if ((recovered_ts > (conn->current_pb_deadline + 3000)) && (i != conn->max_delivered_to_app) && (recovered_ts - conn->current_pb_deadline < 100000) && (recovered_seqnum != 0)){
+        //if (recovered_ts > (conn->current_pb_deadline + 3000)){
+          printf("break - wait for delayed data to arrive\n");
+          break;
         }
         
-        
-        //adjust offset to effectively discard newly received 'stale' packets
-        
-        if (recovered_ts < conn->current_pb_deadline){
-          //printf("rx_offset adjusted from %lu to %u\n", rx_offset, j);
-          //ngtcp2_rob_remove_prefix(&strm->rob, rx_offset);          //ngtcp2_rob_remove_prefix(&strm->rob, j);
-          //rx_offset = j;
-          //strm->last_rx_offset = j;
-          //printf("!!fr->offset adjusted (fr)\n");
+        //treat abnormal value frame as a stale frame - advance offsets
+        if ((recovered_ts - conn->current_pb_deadline > 100000) && (recovered_ts != 0) && (recovered_seqnum == 0)){
+          printf("\nabnormal payload detected in reorder buffer - offsets advanced\n\n");
           
-          //printf("stale packet received\n");
-          printf("\nstale packet detected - offsets advanced\n\n");
-          
-          //if this packet has arrived after its playback deadline but before the next playable packet has arrived, increment offset which stream will be read at
+          //TODO: find out why these abnormal timestamps occur
+          //seems to be a result of false starts due to segfaults in handshake at client
+          //possibly residual data being held in server retransmit buffers or client reorder buffers?
           if (fr->offset >= conn->max_delivered_to_app){
-            //conn->max_delivered_to_app = fr->offset + 8;
-            //strm->last_rx_offset = fr->offset + 8;
-            conn->max_delivered_to_app = fr->offset + 8;
-            strm->last_rx_offset = fr->offset + 8;
+            conn->max_delivered_to_app = i + 8;
+            strm->last_rx_offset = i + 8;
           }
-          //return ngtcp2_conn_close_stream_if_shut_rdwr(conn, strm, NGTCP2_NO_ERROR);
-          
-          //fr->offset += 8;
-          //datalen -= 8;
-          //rx_offset += 8;
-          //conn->max_delivered_to_app = rx_offset;
-          
-          //pb_cutoff = j;
-        //otherwise, pass data to application
-        //one read per packet - should not be coalesced
-        } else {
-          //rv = ngtcp2_rob_remove_prefix(&strm->rob, rx_offset);
-          //add packet to reorder buffer
-          printf("new frame added to reorder buffer\n");
-          rv = ngtcp2_strm_recv_reordering(strm, fr->data[0].base, fr->data[0].len,fr->offset);
+
+        //otherwise, add non-stale frame to reorder buffer
+        }
+        
+        //pass non-zero items to application (ie. actual data)
+        //RTP timestamp of 0 and RTP sequence number of 0 indicates there's no data at that section yet
+        if ((recovered_ts != 0) && (recovered_ts != 0)){
+          //seems to pass a specific section of data to the application
+          //rv = conn_call_recv_stream_data(conn, strm, fin, i+8, data, 8);
+          //one recv per packet - should not be coalesced
+          rv = conn_call_recv_stream_data(conn, strm, fin, i+8, d->begin + i, 8);
           if (rv != 0) {
-            //printf("ERROR TRACE 9\n");
             return rv;
           }
-        }
           
-          //datalen -= 8;
-          //rx_offset += datalen;
-          //rv = ngtcp2_rob_remove_prefix(&strm->rob, rx_offset);
-          
-          printf("starting max_delivered_to_app: %u\n", conn->max_delivered_to_app);
-          //go through all buffered data and deliver to app
-          //while(conn->max_delivered_to_app < conn->max_delivered_to_app){
-            //printf("while loop entered\n");
-            //rv = conn_call_recv_stream_data(conn, strm, fin, rx_offset, data, 8);
-            //conn->max_delivered_to_app += 8;
-            //check that no attempt is made to access a data item which has not been received
-            //it = ngtcp2_psl_begin(&strm->rob.datapsl);
-            //ngtcp2_rob_data *d;
-            //d = ngtcp2_psl_it_get(&it);
-            //if(d->begin != NULL){
-            //for (int i = conn->max_delivered_to_app; i < strm->last_rx_offset; i += 8){
-            for (int i = conn->max_delivered_to_app; i <= strm->last_rx_offset; i += 8){
-              printf("for loop entered\n");
-              it = ngtcp2_psl_begin(&strm->rob.datapsl);
-              printf("it found\n");
-              ngtcp2_rob_data *d;
-              d = ngtcp2_psl_it_get(&it);
-              printf("d found\n");
-              data = d->begin + i;
-              printf("data found\n");
-              //data = fr->data[0].base + ncut;
-              //datalen -= ncut;
-
-              //check frame on arrival
-              //recover RTP timestamp from payload 
-              recovered_ts = 0;
-              recovered_seqnum = 0;
-              
-              for (int k = 0; k < 4; k++){
-                //32-bit, big-endian
-                //recovered_ts += ((*(d->begin[j+k])) << ((3 - k) * 8));
-                recovered_ts += ((d->begin[i+k]) << ((3 - k) * 8));
-              }
-              
-              //recover RTP sequence number from payload 
-              for (int k = 4; k < 8; k++){
-                //32-bit, big-endian
-                recovered_seqnum += ((d->begin[i+k]) << ((7 - k) * 8));
-              }
-              
-              printf("loop item timestamp (conn): %u\n", recovered_ts);
-              printf("loop item seqnum (conn): %u\n", recovered_seqnum);
-              /*
-              for (int k = 0; k < 4; k++){
-                //32-bit, big-endian
-                //recovered_ts += ((*(d->begin[j+k])) << ((3 - k) * 8));
-                recovered_ts += ((*(data + k)) << ((3 - k) * 8));
-              }
-              
-              //recover RTP sequence number from payload 
-              for (int k = 4; k < 8; k++){
-                //32-bit, big-endian
-                recovered_seqnum += ((*(data + k)) << ((7 - k) * 8));
-              }
-              printf("loop item timestamp (conn): %u\n", recovered_ts);
-              printf("loop item seqnum (conn): %u\n", recovered_seqnum);
-              */
-              
-            //}
-              if (recovered_ts > (conn->current_pb_deadline + 3000)){
-                printf("\n\nbreak - wait for potential data to arrive\n\n");
-                break;
-              }
-              printf("recv stream data\n");
-              
-              //pass non-zero items to application
-              if ((recovered_ts != 0) && (recovered_ts != 0)){
-                //seems to pass a specific section of data to the application
-                //rv = conn_call_recv_stream_data(conn, strm, fin, conn->max_delivered_to_app, data, 8);
-                rv = conn_call_recv_stream_data(conn, strm, fin, i+8, data, 8);
-                //conn->max_delivered_to_app += 8;
-                //rv = conn_call_recv_stream_data(conn, strm, fin, rx_offset, data, 8);
-                //rv = conn_call_recv_stream_data(conn, strm, fin, rx_offset, data, 16);
-                //rv = conn_call_recv_stream_data(conn, strm, fin, rx_offset, data, datalen);
-                //rv = conn_call_recv_stream_data(conn, strm, fin, offset, data, datalen);
-                if (rv != 0) {
-                  //printf("ERROR TRACE 12\n");
-                  return rv;
-                }
-
-                //rv = conn_emit_pending_stream_data(conn, strm, rx_offset)
-                //printf("emit stream data\n");
-                //seems to emit all existing stream data up to the first gap, not just a specific range
-                //rv = conn_emit_pending_stream_data(conn, strm, conn->max_delivered_to_app);
-                
-                conn->max_delivered_to_app = (i + 8);
-                rv = ngtcp2_rob_remove_prefix(&strm->rob, conn->max_delivered_to_app);
-              }
-              //rv = ngtcp2_rob_remove_prefix(&strm->rob, conn->max_delivered_to_app);
-              //conn->max_delivered_to_app += 8;
-              //printf("data emitted: fr->offset: %lu, rx_offset: %lu\n", fr->offset, rx_offset);
-              if (rv != 0) {
-                //printf("ERROR TRACE 13\n");
-                return rv;
-              }
-            //}
+          //increment max_delivered_to_app only if data was actually passed to the application
+          conn->max_delivered_to_app = (i + 8);
+          rv = ngtcp2_rob_remove_prefix(&strm->rob, conn->max_delivered_to_app);
+                          if (rv != 0) {
+            return rv;
           }
           
-          //rv = ngtcp2_rob_remove_prefix(&strm->rob, conn->max_delivered_to_app);
-          
-          printf("ending max_delivered_to_app: %u\n", conn->max_delivered_to_app);
-          //fr->offset += 8;
-          //rx_offset += 8;
-          //datalen -= 8;
-        
-      
-      /*
-      printf("recv inspection timestamp (conn): %u\n", recovered_ts);
-      printf("recv inspection seqnum (conn): %u\n", recovered_seqnum);
-      */
-
-      //rx_offset += datalen;
-      //remove content from reorder buffer
-      //rv = ngtcp2_rob_remove_prefix(&strm->rob, rx_offset + datalen);
-      //rv = ngtcp2_rob_remove_prefix(&strm->rob, rx_offset);
-      //if (rv != 0) {
-        //printf("ERROR TRACE 9\n");
-        //return rv;
-      //}
-      
-      
-    } else {
-      //printf("ERROR TRACE 10\n");
-      data = NULL;
-      datalen = 0;
+        }
     }
-
-    fin = (strm->flags & NGTCP2_STRM_FLAG_SHUT_RD) &&
-          rx_offset == strm->last_rx_offset;
-
-    if (fin || datalen) {
-      /*
-      //printf("ERROR TRACE 11\n");
-      //fr->offset = rx_offset;
-      rv = conn_call_recv_stream_data(conn, strm, fin, rx_offset, data, datalen);
-      //rv = conn_call_recv_stream_data(conn, strm, fin, offset, data, datalen);
-      if (rv != 0) {
-        //printf("ERROR TRACE 12\n");
-        return rv;
-      }
-
-      rv = conn_emit_pending_stream_data(conn, strm, rx_offset);
-      //printf("data emitted: fr->offset: %lu, rx_offset: %lu\n", fr->offset, rx_offset);
-      if (rv != 0) {
-        //printf("ERROR TRACE 13\n");
-        return rv;
-      }
-      */
-    }
-  } else if (fr->datacnt) {
-    //printf("ERROR TRACE 14\n");
-    //rv = ngtcp2_strm_recv_reordering(strm, fr->data[0].base, fr->data[0].len, fr->offset);
-    if (rv != 0) {
-      //printf("ERROR TRACE 15\n");
-      return rv;
-    }
+    //printf("ending max_delivered_to_app: %u\n", conn->max_delivered_to_app);
+    
+  } else {
+    data = NULL;
+    datalen = 0;
   }
+
+  //fin = (strm->flags & NGTCP2_STRM_FLAG_SHUT_RD) && rx_offset == strm->last_rx_offset;
+  fin = (strm->flags & NGTCP2_STRM_FLAG_SHUT_RD) && conn->max_delivered_to_app == strm->last_rx_offset;
   
-  printf("ending fr->offset: %lu, rx_offset: %lu\n", fr->offset, rx_offset);
-  
-  //fr->offset = rx_offset;
-  //fr->offset = rx_offset - datalen;
-  //strm->last_rx_offset = rx_offset;
+  printf("---------------------------------------------------------------------\n");
   
   return ngtcp2_conn_close_stream_if_shut_rdwr(conn, strm, NGTCP2_NO_ERROR);
 }
