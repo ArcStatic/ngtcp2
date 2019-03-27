@@ -201,6 +201,8 @@ struct ngtcp2_rtb_entry {
   size_t pktlen;
   /* flags is bitwise-OR of zero or more of ngtcp2_rtb_flag. */
   uint8_t flags;
+  //Added for project
+  //Tracks which frame this packet is dependent on by RTP timestamp
 };
 
 /*

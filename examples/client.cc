@@ -1283,9 +1283,9 @@ int Client::do_handshake_read_once(const uint8_t *data, size_t datalen) {
 
 ssize_t Client::do_handshake_write_once() {
   auto nwrite = ngtcp2_conn_write_handshake(conn_, sendbuf_.wpos(), max_pktlen_,
-                                            util::timestamp(loop_));
+                                            util::timestamp(loop_));                               
   if (nwrite < 0) {
-    std::cerr << "ngtcp2_conn_write_handshake: " << ngtcp2_strerror(nwrite)
+    std::cerr << "ngtcp2_conn_write_handshake error: " << ngtcp2_strerror(nwrite)
               << std::endl;
     disconnect(nwrite);
     return -1;
@@ -1305,13 +1305,13 @@ ssize_t Client::do_handshake_write_once() {
   if (rv != NETWORK_ERR_OK) {
     return rv;
   }
-
+  
   return nwrite;
 }
 
 int Client::do_handshake(const uint8_t *data, size_t datalen) {
   ssize_t nwrite;
-
+  
   if (sendbuf_.size() > 0) {
     auto rv = send_packet();
     if (rv != NETWORK_ERR_OK) {
