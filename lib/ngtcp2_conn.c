@@ -5136,15 +5136,19 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
         //only break if there is actually a gap, continue delivering data if not
         //TODO: find out why some payloads have abnormally large timestamps and seqnum 0
         //crude fix deployed in last two tests of if condition for now
-        if ((recovered_ts > (conn->current_pb_deadline + 3000)) && (i != conn->max_delivered_to_app) && (recovered_ts - conn->current_pb_deadline < 100000) && (recovered_seqnum != 0)){
+        //if ((recovered_ts > (conn->current_pb_deadline + 3000)) && (i != conn->max_delivered_to_app) && (recovered_ts - conn->current_pb_deadline < 100000) && (recovered_seqnum != 0)){
+        if ((recovered_ts > (conn->current_pb_deadline + 3000)) && (i != conn->max_delivered_to_app) && (recovered_ts - conn->current_pb_deadline < 100000)){
         //if (recovered_ts > (conn->current_pb_deadline + 3000)){
           printf("break - wait for delayed data to arrive\n");
           break;
         }
         
+        /*
+        //this has been resolved by calling calloc when creating a new reorder buffer
+        //abnormal reads were caused by existing stale data still being present in allocated memory
         //treat abnormal value frame as a stale frame - advance offsets
-        if ((recovered_ts - conn->current_pb_deadline > 100000) && (recovered_ts != 0) && (recovered_seqnum == 0)){
-          printf("\nabnormal payload detected in reorder buffer - offsets advanced\n\n");
+        //if ((recovered_ts - conn->current_pb_deadline > 100000) && (recovered_ts != 0) && (recovered_seqnum == 0)){
+          //printf("\nabnormal payload detected in reorder buffer - offsets advanced\n\n");
           
           //TODO: find out why these abnormal timestamps occur
           //seems to be a result of false starts due to segfaults in handshake at client
@@ -5153,10 +5157,9 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
             conn->max_delivered_to_app = i + 8;
             //strm->last_rx_offset = i + 8;
             break;
-          //}
-
-        //otherwise, add non-stale frame to reorder buffer
+          }
         }
+        */
         
         //pass non-zero items to application (ie. actual data)
         //RTP timestamp of 0 and RTP sequence number of 0 indicates there's no data at that section yet

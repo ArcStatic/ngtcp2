@@ -51,7 +51,9 @@ void ngtcp2_rob_gap_del(ngtcp2_rob_gap *g, ngtcp2_mem *mem) {
 
 int ngtcp2_rob_data_new(ngtcp2_rob_data **pd, uint64_t offset, size_t chunk,
                         ngtcp2_mem *mem) {
-  *pd = ngtcp2_mem_malloc(mem, sizeof(ngtcp2_rob_data) + chunk);
+  //*pd = ngtcp2_mem_malloc(mem, sizeof(ngtcp2_rob_data) + chunk);
+  //changed to calloc for project - kept encountering abnormal payloads
+  *pd = ngtcp2_mem_calloc(mem, 1, sizeof(ngtcp2_rob_data) + chunk);
   if (*pd == NULL) {
     return NGTCP2_ERR_NOMEM;
   }
