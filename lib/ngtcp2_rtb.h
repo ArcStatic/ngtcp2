@@ -202,7 +202,14 @@ struct ngtcp2_rtb_entry {
   /* flags is bitwise-OR of zero or more of ngtcp2_rtb_flag. */
   uint8_t flags;
   //Added for project
-  //Tracks which frame this packet is dependent on by RTP timestamp
+  //Tracks which frame this packet is dependent on by QUIC packet number
+  //(note: first packet number of frame)
+  uint64_t dependent_on;
+  //Tracks which frames are dependent on this packet by QUIC packet number
+  uint64_t *dependent_frames;
+  //number of fragments which the video frame has been split into
+  //(ie. how many packets did this I-frame get divided into?)
+  //uint8_t fragments;
 };
 
 /*

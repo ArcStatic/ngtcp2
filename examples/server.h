@@ -245,9 +245,14 @@ public:
   int update_key();
   
   // RTP timestamp and sequence numbers
-  //TODO make these 32-bit - currently issues with sendbuf
   uint32_t rtp_timestamp_;
   uint32_t rtp_seqnum_;
+  
+  //Stats tracking
+  //Total number of frames which the server has attempted to send
+  uint32_t frames_sent_;
+  uint32_t i_frames_sent_;
+  uint32_t p_frames_sent_;
 
 private:
   Address remote_addr_;

@@ -697,7 +697,8 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
   //auto now = util::timestamp(loop);
 
   
-  h->rtp_seqnum_ += 1;
+  //h->rtp_seqnum_ += 1;
+  
   //50fps, assume sampling rate of 8000Hz
   //slower timing - behind client, most traffic should be rejected
   //h->rtp_timestamp_ += 1000;
@@ -709,13 +710,15 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
   //h->rtp_timestamp_ += 5000;
   //h->rtp_timestamp_ += 10;
   
+  //h->frames_sent_ += 1;
+  
   ngtcp2_increment_pb_deadline(h->conn(), (uint32_t)3000);  
   //ngtcp2_increment_pb_deadline(h->conn(), (uint32_t)5000);  
   
   //std::cerr << "RTP CALLBACK, seq: "  << (c->rtp_seqnum_) << ", ts: " << (c->rtp_timestamp_) << std::endl;
 
   h->send_rtp();
-  s->start_wev();
+  //s->start_wev();
   //s->start_rev();
 
   return;
@@ -785,7 +788,10 @@ int recv_client_initial(ngtcp2_conn *conn, const ngtcp2_cid *dcid,
   if (h->recv_client_initial(dcid) != 0) {
     return NGTCP2_ERR_CALLBACK_FAILURE;
   }
-
+  
+  //this needs to go somewhere else - hacky fix
+  h->frames_sent_ = 0;
+  
   return 0;
 }
 } // namespace
@@ -2062,44 +2068,105 @@ int Handler::send_rtp() {
   ssize_t nread;
   
   int rv;
-  std::vector<uint8_t> buffer = {};
+  int fragments;
+  //std::vector<uint8_t> buffer = {};
+  std::vector<uint8_t> buffer;
   uint8_t current_byte;
 
   auto &rtp_stream = streams_[last_stream_id_];
   
+  fragments = 1;
   //std::cerr << "writing to RTP stream..." << std::endl;
   //static constexpr uint8_t hw[] = "Test RTP data from server!";
-  
-  //append RTP sequence number to payload
-  for (int i = 0; i < 4; i++){
-    //32-bit, big-endian
-    current_byte = (rtp_timestamp_ >> ((3 - i) * 8));
-    //std::cout << "rtp_timestamp_: " << rtp_timestamp_ << std::endl;
-    //std::cout << std::bitset<32>(rtp_timestamp_) << std::endl;
-    //std::cout << "rtp_timestamp_ shifted >> " << ((3 - i) * 8) << ": " << (rtp_timestamp_ >> ((3 - i) * 8)) << std::endl;
-    buffer.emplace_back(current_byte);
-    //std::cout << "current_byte: " << unsigned(current_byte) << std::endl;
-    //std::cout << std::string((i * 8),'-') << std::bitset<8>(current_byte) << std::endl;
-    //std::cout << "item at buffer[" << i << "]: " << unsigned(buffer.at(i)) << std::endl;
+  //ie. every 10th frame sent is an I-frame
+  if ((frames_sent_ % 10) == 0){
+    fragments = 4;
+    std::cout << "Simulated I-frame" << std::endl;
   }
   
-  //append RTP timestamp to payload 
-  for (int i = 0; i < 4; i++){
-    //big-endian
-    current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
-    buffer.emplace_back(current_byte);
-  }
-  
-  rtp_stream->streambuf.emplace_back(buffer.data(), buffer.size());
-  //rtp_stream->streambuf.emplace_back(hw, str_size(hw));
-  
-  //std::cerr << "RTP stream written" << std::endl;
-  
-  //rtp_stream->resp_state = RESP_IDLE;
-  
-  //set write event
-  //ev_feed_event(loop_, s->wev_, EV_WRITE);
+  //send separate packets each prefixed with a timestamp for a frame being delivered
+  //TODO: make this more realistic instead of just sending 4 8-byte packets for I-frames and 1 8-byte packet for P frames
+  for (int a = 0; a < fragments; a++){
+    buffer = {};
+    //append RTP sequence number to payload
+    for (int i = 0; i < 4; i++){
+      //32-bit, big-endian
+      current_byte = (rtp_timestamp_ >> ((3 - i) * 8));
+      //std::cout << "rtp_timestamp_: " << rtp_timestamp_ << std::endl;
+      //std::cout << std::bitset<32>(rtp_timestamp_) << std::endl;
+      //std::cout << "rtp_timestamp_ shifted >> " << ((3 - i) * 8) << ": " << (rtp_timestamp_ >> ((3 - i) * 8)) << std::endl;
+      buffer.emplace_back(current_byte);
+      //std::cout << "current_byte: " << unsigned(current_byte) << std::endl;
+      //std::cout << std::string((i * 8),'-') << std::bitset<8>(current_byte) << std::endl;
+      //std::cout << "item at buffer[" << i << "]: " << unsigned(buffer.at(i)) << std::endl;
+    }
+    
+    //append RTP timestamp to payload 
+    for (int i = 0; i < 4; i++){
+      //big-endian
+      current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
+      buffer.emplace_back(current_byte);
+    }
+    
+    rtp_stream->streambuf.emplace_back(buffer.data(), buffer.size());
+    //rtp_stream->streambuf.emplace_back(hw, str_size(hw));
+    
+    //std::cerr << "RTP stream written" << std::endl;
+    
+    //rtp_stream->resp_state = RESP_IDLE;
+    
+    //set write event
+    //ev_feed_event(loop_, s->wev_, EV_WRITE);
 
+    //on_write_stream(*rtp_stream);
+    
+    rv = on_write_stream(*rtp_stream);
+    //rv = write_stream_data(*rtp_stream, 0, rtp_stream->streambuf[rtp_stream->streambuf_idx]);
+    
+    /*
+    if (rv != 0) {
+      if (rv == NETWORK_ERR_SEND_NON_FATAL) {
+        schedule_retransmit();
+        return rv;
+      }
+      return rv;
+    }
+    
+    PathStorage path;
+  
+    auto n = ngtcp2_conn_write_pkt(conn_, &path.path, sendbuf_.wpos(),
+                                   max_pktlen_, util::timestamp(loop_));
+    if (n < 0) {
+      std::cerr << "ngtcp2_conn_write_pkt: " << ngtcp2_strerror(n) << std::endl;
+      return handle_error(n);
+    }
+
+    sendbuf_.push(n);
+
+    update_remote_addr(&path.path.remote);
+
+    rv = server_->send_packet(remote_addr_, sendbuf_);
+    if (rv == NETWORK_ERR_SEND_NON_FATAL) {
+      schedule_retransmit();
+      return rv;
+    }
+    if (rv != NETWORK_ERR_OK) {
+      return rv;
+    }
+
+    schedule_retransmit(); 
+    */  
+    rtp_seqnum_ += 1;
+  }
+  
+  if (fragments == 1){
+    p_frames_sent_ += 1;
+  } else {
+    i_frames_sent_ += 1;
+  }
+  
+  frames_sent_ += 1;
+  std::cout << "Frames sent: " << frames_sent_ << std::endl;
   return 0;
 }
 
@@ -2129,18 +2196,19 @@ void Handler::on_stream_close(uint64_t stream_id) {
 
 void Handler::set_tls_alert(uint8_t alert) { tls_alert_ = alert; }
 
+//modified for project
 namespace {
 void swritecb(struct ev_loop *loop, ev_io *w, int revents) {
   ev_io_stop(loop, w);
 
   auto s = static_cast<Server *>(w->data);
 
-  auto rv = s->on_write();
-  if (rv != 0) {
-    if (rv == NETWORK_ERR_SEND_NON_FATAL) {
-      s->start_wev();
-    }
-  }
+  //auto rv = s->on_write();
+  //if (rv != 0) {
+    //if (rv == NETWORK_ERR_SEND_NON_FATAL) {
+      //s->start_wev();
+    //}
+  //}
 }
 } // namespace
 
@@ -2700,6 +2768,7 @@ int Server::verify_token(ngtcp2_cid *ocid, const ngtcp2_pkt_hd *hd,
 }
 
 int Server::send_packet(Address &remote_addr, Buffer &buf) {
+  std::cerr << "\nsend_packet call\n" << std::endl;
   if (debug::packet_lost(config.tx_loss_prob)) {
     //if (!config.quiet) {
       std::cerr << "\n** Simulated outgoing packet loss **\n" << std::endl;
@@ -3053,7 +3122,7 @@ int create_sock(Address &local_addr, const char *addr, const char *port,
 namespace {
 int serve(Server &s, const char *addr, const char *port, int family) {
   Address local_addr;
-
+  
   auto fd = create_sock(local_addr, addr, port, family);
   if (fd == -1) {
     return -1;

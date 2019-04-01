@@ -898,11 +898,9 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
   //Break the retransmission timer!
   //results in chunks of RTP sequence numbers being skipped because payloads are merged
   ngtcp2_conn_set_loss_detection_timer(conn);
-
-  
   
   it = ngtcp2_ksl_begin(&rtb->ents);
-  printf("it found\n");
+  //printf("it found\n");
   //printf("begin: %zu, len: %zu\n", it.i, ngtcp2_ksl_len(&rtb->ents));
   
   //if (it != NULL){
@@ -913,6 +911,7 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
   //*should* be ok for the project since this section only really handles STREAM frames
   if (ngtcp2_conn_get_handshake_completed(conn)){
   //if(1){
+  
     for (; !ngtcp2_ksl_it_end(&it); ngtcp2_ksl_it_next(&it)) {
       it_ent = ngtcp2_ksl_it_get(&it);
       
@@ -938,19 +937,43 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
       if ((&it_ent->frc->fr.type != NULL) && (it_ent->frc->fr.type == NGTCP2_FRAME_STREAM)){
       //if ((&it_ent->frc != NULL) && (&it_ent->frc->fr.type != NULL) && (it_ent->frc->fr.type == NGTCP2_FRAME_STREAM)){
         printf("STREAM frame\n");
+            //start of send debugging
+            uint32_t recovered_ts = 0;
+            uint32_t recovered_seqnum = 0;
+            uint8_t *data;
+            data = ent->frc->fr.stream.data->base;
             
-        uint32_t recovered_ts = 0;
-        uint32_t recovered_seqnum = 0; 
-        uint8_t *data;
+            //recover RTP timestamp from payload 
+            for (int i = 0; i < 4; i++){
+              //32-bit, big-endian
+              recovered_ts += ((*(data + i)) << ((3 - i) * 8));
+              //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
+            }
+            
+            //recover RTP sequence number from payload 
+            for (int i = 4; i < 8; i++){
+              //32-bit, big-endian
+              recovered_seqnum += ((*(data + i)) << ((7 - i) * 8));
+              //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
+            }
+            
+            //printf("sent timestamp (conn): %u\n", recovered_ts);
+            //printf("sent seqnum (conn): %u\n", recovered_seqnum);
+            //end of send debugging
+            
+        //uint32_t recovered_ts = 0;
+        //uint32_t recovered_seqnum = 0; 
+        //uint8_t *data;
         
         data = it_ent->frc->fr.stream.data->base;
         
+        recovered_ts = 0;
+        recovered_seqnum = 0;
         //recover RTP timestamp from payload 
         for (int i = 0; i < 4; i++){
           //32-bit, big-endian
           recovered_ts += ((*(data + i)) << ((3 - i) * 8));
           //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
-          //buffer.emplace_back(current_byte);
         }
         
         //recover RTP sequence number from payload 
@@ -958,11 +981,10 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
           //32-bit, big-endian
           recovered_seqnum += ((*(data + i)) << ((7 - i) * 8));
           //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
-          //buffer.emplace_back(current_byte);
         }
         
-        //printf("sent timestamp (conn): %u\n", recovered_ts);
-        //printf("sent seqnum (conn): %u\n", recovered_seqnum);
+        printf("rtb item timestamp (conn): %u\n", recovered_ts);
+        printf("rtb item seqnum (conn): %u\n", recovered_seqnum);
         
         /*
         printf("\nSend check:\n");
@@ -973,9 +995,6 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
         printf("ts: %lu\n", ts);
         */
 
-        
-        //if (recovered_ts >= 300000){
-        //if ((recovered_ts >= 30000) && (recovered_ts <= conn->current_pb_deadline)){
         if (recovered_ts <= conn->current_pb_deadline){
           printf("stale packet detected in retransmit buffer\n");
           ngtcp2_ack ack;
@@ -5038,6 +5057,7 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
   
   //project modifications here
   //this line causes blocking behaviour of streams!
+  //TODO: modify this section to look for I-frames and supply them if P-frames go missing
   ngtcp2_psl_it it;
   uint32_t recovered_ts = 0;
   uint32_t recovered_seqnum = 0; 
