@@ -866,6 +866,8 @@ static int conn_ppe_write_frame(ngtcp2_conn *conn, ngtcp2_ppe *ppe,
 static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
                             ngtcp2_rtb_entry *ent) {
   int rv;
+  uint32_t live_dependency;
+  //uint8_t live_idx;
 
   /* This function implements OnPacketSent, but it handles only
      retransmittable packet (non-ACK only packet). */
@@ -875,6 +877,17 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
   rv = ngtcp2_rtb_add(rtb, ent);
   if (rv != 0) {
     return rv;
+  }
+  
+  live_dependency = 0;
+  
+  //Add dependencies (ie. P-frames add RTP timestamp of corresponding I-frame)
+  if (conn->sending_iframe == 0){
+    ent->dependent_on = conn->recent_iframe_ts;
+    printf("Dependency added to P-frame packet\n");
+  } else {
+    //Mark I-frames with 0 as placeholder for dependencies for now
+    ent->dependent_on = 0;
   }
   
   //ensure that packets in retransmission buffer are still 'live'
@@ -911,7 +924,49 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
   //*should* be ok for the project since this section only really handles STREAM frames
   if (ngtcp2_conn_get_handshake_completed(conn)){
   //if(1){
+    uint32_t dependent_on_ts;
+    uint32_t recovered_ts;
+    uint32_t recovered_seqnum;
+    uint8_t *data;
   
+    if ((&ent->frc->fr.type != NULL) && (ent->frc->fr.type == NGTCP2_FRAME_STREAM)){
+      //No items currently in live dependencies array
+      //live_idx = 0;
+      //start of send debugging
+      recovered_ts = 0;
+      recovered_seqnum = 0;
+      //dependent_on_ts = 0;
+      data = ent->frc->fr.stream.data->base;
+      
+      //recover RTP timestamp from payload 
+      for (int i = 0; i < 4; i++){
+        //32-bit, big-endian
+        recovered_ts += ((*(data + i)) << ((3 - i) * 8));
+        //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
+      }
+      
+      //recover RTP sequence number from payload 
+      for (int i = 4; i < 8; i++){
+        //32-bit, big-endian
+        recovered_seqnum += ((*(data + i)) << ((7 - i) * 8));
+        //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
+      }
+      
+ 
+      //parse RTP timestamp dependency
+      //for (int i = 0; i < 4; i++){
+        //32-bit, big-endian
+        //dependent_on_ts += ((ent->dependent_on) << ((3 - i) * 8));
+        //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
+      //}
+      
+      printf("sent item timestamp (conn): %u\n", recovered_ts);
+      printf("sent item seqnum (conn): %u\n", recovered_seqnum);
+      //printf("sent dependent_on timestamp(conn): %u\n", dependent_on_ts);
+      printf("ent->dependent_on: %u\n", ent->dependent_on);
+      //end of send debugging
+    }
+    
     for (; !ngtcp2_ksl_it_end(&it); ngtcp2_ksl_it_next(&it)) {
       it_ent = ngtcp2_ksl_it_get(&it);
       
@@ -937,38 +992,12 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
       if ((&it_ent->frc->fr.type != NULL) && (it_ent->frc->fr.type == NGTCP2_FRAME_STREAM)){
       //if ((&it_ent->frc != NULL) && (&it_ent->frc->fr.type != NULL) && (it_ent->frc->fr.type == NGTCP2_FRAME_STREAM)){
         printf("STREAM frame\n");
-            //start of send debugging
-            uint32_t recovered_ts = 0;
-            uint32_t recovered_seqnum = 0;
-            uint8_t *data;
-            data = ent->frc->fr.stream.data->base;
-            
-            //recover RTP timestamp from payload 
-            for (int i = 0; i < 4; i++){
-              //32-bit, big-endian
-              recovered_ts += ((*(data + i)) << ((3 - i) * 8));
-              //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
-            }
-            
-            //recover RTP sequence number from payload 
-            for (int i = 4; i < 8; i++){
-              //32-bit, big-endian
-              recovered_seqnum += ((*(data + i)) << ((7 - i) * 8));
-              //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
-            }
-            
-            //printf("sent timestamp (conn): %u\n", recovered_ts);
-            //printf("sent seqnum (conn): %u\n", recovered_seqnum);
-            //end of send debugging
-            
-        //uint32_t recovered_ts = 0;
-        //uint32_t recovered_seqnum = 0; 
-        //uint8_t *data;
         
         data = it_ent->frc->fr.stream.data->base;
-        
         recovered_ts = 0;
         recovered_seqnum = 0;
+        dependent_on_ts = 0;
+        
         //recover RTP timestamp from payload 
         for (int i = 0; i < 4; i++){
           //32-bit, big-endian
@@ -982,9 +1011,17 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
           recovered_seqnum += ((*(data + i)) << ((7 - i) * 8));
           //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
         }
+ 
+        //parse RTP timestamp dependency
+        //for (int i = 0; i < 4; i++){
+          //32-bit, big-endian
+          //dependent_on_ts += ((it_ent->dependent_on) << ((3 - i) * 8));
+          //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
+        //}
         
         printf("rtb item timestamp (conn): %u\n", recovered_ts);
         printf("rtb item seqnum (conn): %u\n", recovered_seqnum);
+        printf("dependent_on timestamp(conn): %u\n", it_ent->dependent_on);
         
         /*
         printf("\nSend check:\n");
@@ -995,8 +1032,17 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
         printf("ts: %lu\n", ts);
         */
 
-        if (recovered_ts <= conn->current_pb_deadline){
-          printf("stale packet detected in retransmit buffer\n");
+        //check if frame has live dependencies - do not delete if yes
+        //retransmit buffer goes from most recently sent to least recently sent
+        //go backwards and note which P-frame dependencies are in effect for this section
+        if ((it_ent->dependent_on != 0) && (recovered_ts > conn->current_pb_deadline)){
+            live_dependency = it_ent->dependent_on;
+            printf("live dependency detected (P-frame)\n");
+        }
+        
+        //if a frame is a P-frame and the playback deadline has expired, remove from buffer
+        if ((it_ent->dependent_on != 0) && (recovered_ts <= conn->current_pb_deadline)){
+          printf("stale packet detected in retransmit buffer (P-frame)\n");
           ngtcp2_ack ack;
           ngtcp2_tstamp ts;
           ts = conn->log.last_ts;
@@ -1023,12 +1069,55 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
           if (rv != 0) {
             return rv;
           }
+          
           printf("Packet removed from rtb: ts %u, seqnum: %u\n", recovered_ts, recovered_seqnum);
+          //live_dependency = 0;
           it = ngtcp2_ksl_begin(&rtb->ents);
           if (it.blk->next == NULL){
             break;
           }
         }
+        
+        //if a packet containing an I-frame has no remaining dependencies and the playback deadline has expired, remove from buffer
+        if ((it_ent->dependent_on == 0) && (recovered_ts <= conn->current_pb_deadline) && (live_dependency != recovered_ts)){
+          printf("stale packet detected in retransmit buffer (I-frame)\n");
+          ngtcp2_ack ack;
+          ngtcp2_tstamp ts;
+          ts = conn->log.last_ts;
+
+          //create fake ack to remove entry from rtb
+          ack.type = NGTCP2_FRAME_ACK;
+          ack.largest_ack = it_ent->hd.pkt_num;
+          //ack.first_ack_blklen = it_ent->pktlen - 1;
+          ack.first_ack_blklen = 1;
+          ack.ack_delay_unscaled = ts - it_ent->ts;
+          ack.ack_delay = ack.ack_delay_unscaled /
+                           (NGTCP2_DURATION_TICK / NGTCP2_MICROSECONDS) /
+                           (1UL << NGTCP2_DEFAULT_ACK_DELAY_EXPONENT);
+          ack.num_blks = 0;
+          
+          //printf("false ACK created\n");
+          //need ngtcp2_ack and ngtcp2_ts
+          //create fake ngtcp2_ack
+          //segfault being caused here...
+          rv = ngtcp2_rtb_recv_ack(rtb, &ack, conn, ts);
+          //printf("false ACK received\n");
+          //ngtcp2_rtb_entry_del(it_ent, rtb->mem);
+          //printf("rtb entry deleted\n");
+          if (rv != 0) {
+            return rv;
+          }
+          
+          printf("Packet removed from rtb: ts %u, seqnum: %u\n", recovered_ts, recovered_seqnum);
+          //live_dependency = 0;
+          it = ngtcp2_ksl_begin(&rtb->ents);
+          if (it.blk->next == NULL){
+            break;
+          }
+        } else if ((it_ent->dependent_on == 0) && (live_dependency != 0)){
+          printf("stale I-frame packet not removed from buffer due to dependencies\n");
+        }
+        
         
       /*
       } else if (it_ent->frc->fr.type == NGTCP2_FRAME_CRYPTO){
@@ -1048,7 +1137,7 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
     //printf("End of rtb iteration %zu\n", it.i);
     
   } else {
-    printf("\n\nSEGFAULT AVERTED HERE\n\n");
+    //printf("\n\nSEGFAULT AVERTED HERE\n\n");
   }
     //end of cleanup section
   //}
@@ -1060,11 +1149,34 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
  * ngtcp2_increment_pb_deadline increases the current RTP playback deadline
  * ie. |current_pb_deadline| member of |conn| increased by |delta|
  */                         
+//void ngtcp2_increment_pb_deadline(ngtcp2_conn *conn, uint32_t delta, uint64_t *iframe_pkts){
 void ngtcp2_increment_pb_deadline(ngtcp2_conn *conn, uint32_t delta){
   conn->current_pb_deadline += delta;
+  //conn->iframe_pkts = iframe_pkts;
   printf("conn->current_pb_deadline: %u\n", conn->current_pb_deadline);
 }
 
+/*
+/*
+ * ngtcp2_set_recent_iframe
+ *
+ */                         
+void ngtcp2_set_recent_iframe(ngtcp2_conn *conn, uint32_t rtp_ts){
+  conn->recent_iframe_ts = rtp_ts;
+  //conn->iframe_pkts = iframe_pkts;
+  //printf("conn->current_pb_deadline: %u\n", conn->current_pb_deadline);
+}
+
+/*
+/*
+ * ngtcp2_sending_iframe
+ *
+ */                         
+void ngtcp2_sending_iframe(ngtcp2_conn *conn, uint8_t i){
+  conn->sending_iframe = i;
+  //conn->iframe_pkts = iframe_pkts;
+  //printf("conn->current_pb_deadline: %u\n", conn->current_pb_deadline);
+}
 
 
 /*
@@ -5154,10 +5266,9 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
 
         //if there is time for an absent frame to arrive, break and don't deliver data
         //only break if there is actually a gap, continue delivering data if not
-        //TODO: find out why some payloads have abnormally large timestamps and seqnum 0
-        //crude fix deployed in last two tests of if condition for now
-        //if ((recovered_ts > (conn->current_pb_deadline + 3000)) && (i != conn->max_delivered_to_app) && (recovered_ts - conn->current_pb_deadline < 100000) && (recovered_seqnum != 0)){
-        if ((recovered_ts > (conn->current_pb_deadline + 3000)) && (i != conn->max_delivered_to_app) && (recovered_ts - conn->current_pb_deadline < 100000)){
+        //if ((recovered_ts > (conn->current_pb_deadline + 3000)) && (i != conn->max_delivered_to_app) && (recovered_ts - conn->current_pb_deadline < 100000)){
+        //if (recovered_ts > (conn->current_pb_deadline + 3000)){
+        if ((recovered_ts > (conn->current_pb_deadline + 3000)) && (i != conn->max_delivered_to_app)){
         //if (recovered_ts > (conn->current_pb_deadline + 3000)){
           printf("break - wait for delayed data to arrive\n");
           break;

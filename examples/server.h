@@ -234,7 +234,7 @@ public:
   
   //CUSTOM ADDED FUNCTIONS
   int start_rtp();
-  int send_rtp();
+  int send_rtp(ngtcp2_conn *conn);
   int stop_rtp();
   //END OF CUSTOM ADDED FUNCTIONS
 

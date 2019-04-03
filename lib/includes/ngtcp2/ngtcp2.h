@@ -1564,6 +1564,28 @@ NGTCP2_EXTERN void ngtcp2_increment_pb_deadline(ngtcp2_conn *conn, uint32_t delt
 /**
  * @function
  *
+ * added for project
+/*
+ * ngtcp2_set_recent_iframe
+ *
+ */                         
+NGTCP2_EXTERN void ngtcp2_set_recent_iframe(ngtcp2_conn *conn, uint32_t rtp_ts);
+
+/**
+ * @function
+ *
+ * added for project
+/*
+ * ngtcp2_sending_iframe
+ *
+ */                         
+NGTCP2_EXTERN void ngtcp2_sending_iframe(ngtcp2_conn *conn, uint8_t i);
+
+
+
+/**
+ * @function
+ *
  * `ngtcp2_conn_write_handshake` performs QUIC cryptographic handshake
  * by writing handshake packets.  It may write a packet in the given
  * buffer pointed by |dest| whose capacity is given as |destlen|.

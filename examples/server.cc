@@ -42,6 +42,8 @@
 #include <openssl/bio.h>
 #include <openssl/err.h>
 
+#include <lib/ngtcp2_conn.h>
+
 #include "server.h"
 #include "network.h"
 #include "debug.h"
@@ -717,7 +719,7 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
   
   //std::cerr << "RTP CALLBACK, seq: "  << (c->rtp_seqnum_) << ", ts: " << (c->rtp_timestamp_) << std::endl;
 
-  h->send_rtp();
+  h->send_rtp(h->conn());
   //s->start_wev();
   //s->start_rev();
 
@@ -2061,7 +2063,7 @@ int Handler::start_rtp() {
   return 0;
 }
 
-int Handler::send_rtp() {
+int Handler::send_rtp(ngtcp2_conn *conn) {
   //std::cerr << "RTP function started" << std::endl;
   //std::cerr << "last_steam_id = " << last_stream_id_ << std::endl;
   //std::cerr << "streams_ size = " << streams_.size() << std::endl;
@@ -2072,17 +2074,24 @@ int Handler::send_rtp() {
   //std::vector<uint8_t> buffer = {};
   std::vector<uint8_t> buffer;
   uint8_t current_byte;
+  uint8_t *rtp_payload;
 
   auto &rtp_stream = streams_[last_stream_id_];
   
   fragments = 1;
+  conn->sending_iframe = 0;
   //std::cerr << "writing to RTP stream..." << std::endl;
   //static constexpr uint8_t hw[] = "Test RTP data from server!";
   //ie. every 10th frame sent is an I-frame
   if ((frames_sent_ % 10) == 0){
     fragments = 4;
     std::cout << "Simulated I-frame" << std::endl;
+    conn->recent_iframe_ts = rtp_timestamp_;
+    conn->sending_iframe = 1;
   }
+  
+  //std::cout << "rtp_timestamp_: " << rtp_timestamp_ << std::endl;
+  //std::cout << "conn->recent_iframe_ts: " << conn->recent_iframe_ts << std::endl;
   
   //send separate packets each prefixed with a timestamp for a frame being delivered
   //TODO: make this more realistic instead of just sending 4 8-byte packets for I-frames and 1 8-byte packet for P frames
@@ -2768,7 +2777,6 @@ int Server::verify_token(ngtcp2_cid *ocid, const ngtcp2_pkt_hd *hd,
 }
 
 int Server::send_packet(Address &remote_addr, Buffer &buf) {
-  std::cerr << "\nsend_packet call\n" << std::endl;
   if (debug::packet_lost(config.tx_loss_prob)) {
     //if (!config.quiet) {
       std::cerr << "\n** Simulated outgoing packet loss **\n" << std::endl;
@@ -2803,11 +2811,11 @@ int Server::send_packet(Address &remote_addr, Buffer &buf) {
   assert(static_cast<size_t>(nwrite) == buf.size());
   buf.reset();
 
-  if (!config.quiet) {
+  //if (!config.quiet) {
     std::cerr << "Sent packet to "
               << util::straddr(&remote_addr.su.sa, remote_addr.len) << " "
               << nwrite << " bytes" << std::endl;
-  }
+  //}
 
   return NETWORK_ERR_OK;
 }

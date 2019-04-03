@@ -200,17 +200,31 @@ struct ngtcp2_rtb_entry {
   /* pktlen is the length of QUIC packet */
   size_t pktlen;
   /* flags is bitwise-OR of zero or more of ngtcp2_rtb_flag. */
+  //TODO: modify this to include a flag for sending I-frame later
   uint8_t flags;
   //Added for project
-  //Tracks which frame this packet is dependent on by QUIC packet number
-  //(note: first packet number of frame)
-  uint64_t dependent_on;
-  //Tracks which frames are dependent on this packet by QUIC packet number
-  uint64_t *dependent_frames;
+  //Tracks which frame this packet is dependent on by RTP timestamp
+  //(an I-frame will be split across multiple packets but will have the same timestamp)
+  uint32_t dependent_on;
+  //Tracks which frames are dependent on this packet by RTP timestamps
+  uint32_t *dependent_frames;
   //number of fragments which the video frame has been split into
   //(ie. how many packets did this I-frame get divided into?)
   //uint8_t fragments;
 };
+
+
+/*
+ * ngtcp2_rtb_add_dependent_frame adds dependent frames to ngtcp2_rtb_entry object.
+ * ie. this rtb entry repesents an I-frame - its dependents will be P-frames or B-frames.
+ *
+ * This function returns 0 if it succeeds, or one of the following
+ * negative error codes:
+ *
+ * NGTCP2_ERR_NOMEM
+ *     Out of memory.
+ */
+//int ngtcp2_rtb_add_dependent_frame(ngtcp2_rtb_entry *ent, uint64_t dependent, ngtcp2_mem *mem);
 
 /*
  * ngtcp2_rtb_entry_new allocates ngtcp2_rtb_entry object, and assigns

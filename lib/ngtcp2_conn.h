@@ -368,6 +368,11 @@ struct ngtcp2_conn {
   //Maximum offset of data delivered to application
   //needed to allow application to wait on data which still has time to arrive
   uint32_t max_delivered_to_app;
+  //RTP timestamp associated with the most recent I-frame
+  //Added to P-frame packet entries in retransmit buffer for dependency purposes
+  uint32_t recent_iframe_ts;
+  //1 if I-frame is being sent, 0 if not
+  uint8_t sending_iframe;
 };
 
 /*
