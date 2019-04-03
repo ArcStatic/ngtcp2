@@ -69,6 +69,10 @@ struct Config {
   bool show_secret;
   // validate_addr is true if server requires address validation.
   bool validate_addr;
+  //Number of frames to send for this run
+  uint32_t frame_limit;
+  //Increment to use to increase RTP timestamp for each tick
+  uint32_t rtp_ts_increment;
 };
 
 struct Buffer {
@@ -251,8 +255,18 @@ public:
   //Stats tracking
   //Total number of frames which the server has attempted to send
   uint32_t frames_sent_;
+  //Total number of I-frames sent
   uint32_t i_frames_sent_;
+  //Total number of P-frames sent
   uint32_t p_frames_sent_;
+  //Maximum number of frames to send for this run
+  uint32_t frame_limit_;
+  //Amount to increment RTP timestamp by each tick
+  uint32_t rtp_ts_delta_;
+  
+  //TODO replace this with something better able to handle multiple streams
+  uint64_t last_stream_id_;
+  std::map<uint32_t, std::unique_ptr<Stream>> streams_;
 
 private:
   Address remote_addr_;
@@ -276,7 +290,6 @@ private:
   ngtcp2_cid rcid_;
   crypto::Context hs_crypto_ctx_;
   crypto::Context crypto_ctx_;
-  std::map<uint32_t, std::unique_ptr<Stream>> streams_;
   // common buffer used to store packet data before sending
   Buffer sendbuf_;
   // conn_closebuf_ contains a packet which contains CONNECTION_CLOSE.
@@ -298,8 +311,6 @@ private:
   bool initial_;
   // draining_ becomes true when draining period starts.
   bool draining_;
-  //TODO replace this with something better able to handle multiple streams
-  uint64_t last_stream_id_;
 };
 
 constexpr size_t TOKEN_SECRETLEN = 16;

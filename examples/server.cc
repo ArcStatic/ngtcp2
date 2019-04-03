@@ -697,7 +697,34 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
   auto s = h->server();
   //auto conn = h->conn();
   //auto now = util::timestamp(loop);
+  int rv;
 
+  //if frame limit has been reached for this experiment, terminate the connection
+  if (h->frames_sent_ == config.frame_limit){
+    //stop_rtp();
+    //send_conn_close();
+    
+      //auto it = h->streams_.find(h->last_stream_id_);
+      /*
+      if (it == std::end(h->streams_)) {
+        it = h->streams_.emplace(h->last_stream_id_, std::make_unique<Stream>(h->last_stream_id_)).first;
+      }
+      */
+
+      //auto &stream = (*it).second;
+      /*
+      rv = ngtcp2_conn_shutdown_stream(h->conn(), h->last_stream_id_, NGTCP2_APP_PROTO);
+      if (rv != 0) {
+        std::cerr << "ngtcp2_conn_shutdown_stream: " << ngtcp2_strerror(rv)
+                  << std::endl;
+        //return -1;
+      }
+      */
+    
+    h->start_closing_period(0);
+    //exit(EXIT_SUCCESS);
+      
+  }
   
   //h->rtp_seqnum_ += 1;
   
@@ -706,7 +733,8 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
   //h->rtp_timestamp_ += 1000;
   //regular timing - in sync with client, should be a small fraction of traffic rejected
   //h->rtp_timestamp_ += 3500;
-  h->rtp_timestamp_ += 3010;
+  //h->rtp_timestamp_ += 3010;
+  h->rtp_timestamp_ += config.rtp_ts_increment;
   //h->rtp_timestamp_ += 3000;
   //faster timing - ahead of client, most traffic should be accepted
   //h->rtp_timestamp_ += 5000;
@@ -714,7 +742,8 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
   
   //h->frames_sent_ += 1;
   
-  ngtcp2_increment_pb_deadline(h->conn(), (uint32_t)3000);  
+  ngtcp2_increment_pb_deadline(h->conn(), config.rtp_ts_increment);  
+  //ngtcp2_increment_pb_deadline(h->conn(), (uint32_t)3000);  
   //ngtcp2_increment_pb_deadline(h->conn(), (uint32_t)5000);  
   
   //std::cerr << "RTP CALLBACK, seq: "  << (c->rtp_seqnum_) << ", ts: " << (c->rtp_timestamp_) << std::endl;
@@ -791,7 +820,7 @@ int recv_client_initial(ngtcp2_conn *conn, const ngtcp2_cid *dcid,
     return NGTCP2_ERR_CALLBACK_FAILURE;
   }
   
-  //this needs to go somewhere else - hacky fix
+  //these need to go somewhere else - hacky fix
   h->frames_sent_ = 0;
   
   return 0;
@@ -1814,6 +1843,9 @@ int Handler::send_conn_close() {
     sendbuf_.push(conn_closebuf_->size());
   }
 
+  //Forcibly exit after frame limit reached - print stats before this call
+  server_->send_packet(remote_addr_, sendbuf_);
+  exit(EXIT_SUCCESS);
   return server_->send_packet(remote_addr_, sendbuf_);
 }
 
@@ -2176,6 +2208,12 @@ int Handler::send_rtp(ngtcp2_conn *conn) {
   
   frames_sent_ += 1;
   std::cout << "Frames sent: " << frames_sent_ << std::endl;
+  
+  //if frame limit has been reached for this experiment, terminate the connection
+  //if (frames_sent_ == config.frame_limit){
+    //stop_rtp();
+    //send_conn_close();
+  //}
   return 0;
 }
 
@@ -3174,6 +3212,7 @@ void config_set_default(Config &config) {
   config = Config{};
   config.tx_loss_prob = 0.;
   config.rx_loss_prob = 0.;
+  config.rtp_ts_increment = 3000;
   config.ciphers = "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_"
                    "POLY1305_SHA256";
   config.groups = "P-256:X25519:P-384:P-521";
@@ -3246,13 +3285,16 @@ int main(int argc, char **argv) {
         {"quiet", no_argument, nullptr, 'q'},
         {"show-secret", no_argument, nullptr, 's'},
         {"validate-addr", no_argument, nullptr, 'V'},
+        {"frame-limit", required_argument, nullptr, 'l'},
+        {"rtp-increment", required_argument, nullptr, 'i'},
         {"ciphers", required_argument, &flag, 1},
         {"groups", required_argument, &flag, 2},
         {"timeout", required_argument, &flag, 3},
         {nullptr, 0, nullptr, 0}};
 
     auto optidx = 0;
-    auto c = getopt_long(argc, argv, "d:hqr:st:V", long_opts, &optidx);
+    //auto c = getopt_long(argc, argv, "d:hqr:st:Vl", long_opts, &optidx);
+    auto c = getopt_long(argc, argv, "dl:i:hqr:st:V", long_opts, &optidx);
     if (c == -1) {
       break;
     }
@@ -3272,6 +3314,15 @@ int main(int argc, char **argv) {
       // --help
       print_help();
       exit(EXIT_SUCCESS);
+    //Added for project
+    //set frame limit (ie. maximum number of frames to send for this experiment)
+    case 'l':
+      // --limit number of frames to send
+      config.frame_limit = strtoul(optarg, nullptr, 10);
+    //Added for project
+    //set amount to increment RTP timestamp by for each tick
+    case 'i':
+      config.rtp_ts_increment = strtoul(optarg, nullptr, 10);
     case 'q':
       // -quiet
       config.quiet = true;
@@ -3315,6 +3366,8 @@ int main(int argc, char **argv) {
       break;
     };
   }
+
+  std::cerr << "Config frame limit: " << config.frame_limit << std::endl;
 
   if (argc - optind < 4) {
     std::cerr << "Too few arguments" << std::endl;
