@@ -210,6 +210,7 @@ public:
   int start_rtp();
   int send_rtp();
   int stop_rtp();
+  void output_stats();
   //END OF CUSTOM ADDED FUNCTIONS
   void remove_tx_crypto_data(uint64_t offset, size_t datalen);
   int remove_tx_stream_data(uint64_t stream_id, uint64_t offset,
@@ -233,6 +234,11 @@ public:
   //TODO make these 32-bit - currently issues with sendbuf
   uint32_t rtp_timestamp_;
   uint32_t rtp_seqnum_;
+  
+  uint32_t total_data_;
+  uint32_t useful_data_;
+  uint32_t stale_data_;
+
 
 private:
   Address local_addr_;

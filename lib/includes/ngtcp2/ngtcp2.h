@@ -1565,6 +1565,47 @@ NGTCP2_EXTERN void ngtcp2_increment_pb_deadline(ngtcp2_conn *conn, uint32_t delt
  * @function
  *
  * added for project
+ *
+ * ngtcp2_total_data returns the number of bytes which were received by the client in total
+ */                         
+NGTCP2_EXTERN uint32_t ngtcp2_total_data(ngtcp2_conn *conn);
+
+/**
+ * @function
+ *
+ * added for project
+ *
+ * ngtcp2_total_useful_data returns the number of bytes which were passed to the client
+ * application before the deadline
+ */                         
+NGTCP2_EXTERN uint32_t ngtcp2_total_useful_data(ngtcp2_conn *conn);
+
+/**
+ * @function
+ *
+ * added for project
+ *
+ * ngtcp2_total_useful_data returns the number of bytes which were received by the client after
+ * their playback deadline and were not passed to the application
+ */                         
+NGTCP2_EXTERN uint32_t ngtcp2_stale_data(ngtcp2_conn *conn);
+
+
+/**
+ * @function
+ *
+ * added for project
+ *
+ * ngtcp2_total_useful_data returns the number of bytes which were received by the client after
+ * their playback deadline and were not passed to the application
+ */                         
+NGTCP2_EXTERN uint32_t ngtcp2_rtb_pkt_removals(ngtcp2_conn *conn);
+
+
+/**
+ * @function
+ *
+ * added for project
 /*
  * ngtcp2_set_recent_iframe
  *

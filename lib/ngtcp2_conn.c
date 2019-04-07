@@ -1072,6 +1072,7 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
           
           printf("Packet removed from rtb: ts %u, seqnum: %u\n", recovered_ts, recovered_seqnum);
           //live_dependency = 0;
+          conn->packets_removed_from_rtb += 1;
           it = ngtcp2_ksl_begin(&rtb->ents);
           if (it.blk->next == NULL){
             break;
@@ -1110,6 +1111,7 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
           
           printf("Packet removed from rtb: ts %u, seqnum: %u\n", recovered_ts, recovered_seqnum);
           //live_dependency = 0;
+          conn->packets_removed_from_rtb += 1;
           it = ngtcp2_ksl_begin(&rtb->ents);
           if (it.blk->next == NULL){
             break;
@@ -1141,6 +1143,9 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
   }
     //end of cleanup section
   //}
+  
+  printf("smoothed_rtt: %lf\n", conn->rcs.smoothed_rtt);
+  
   return 0;
 }
 
@@ -1177,6 +1182,43 @@ void ngtcp2_sending_iframe(ngtcp2_conn *conn, uint8_t i){
   //conn->iframe_pkts = iframe_pkts;
   //printf("conn->current_pb_deadline: %u\n", conn->current_pb_deadline);
 }
+
+/*
+/*
+ * ngtcp2_total_data
+ *
+ */                         
+uint32_t ngtcp2_total_data(ngtcp2_conn *conn){
+  return conn->max_delivered_to_app;
+}
+
+/*
+/*
+ * ngtcp2_total_useful_data
+ *
+ */                         
+uint32_t ngtcp2_total_useful_data(ngtcp2_conn *conn){
+  return conn->data_delivered_to_app;
+}
+
+/*
+/*
+ * ngtcp2_stale_data
+ *
+ */                         
+uint32_t ngtcp2_stale_data(ngtcp2_conn *conn){
+  return conn->stale_data;
+}
+
+/*
+/*
+ * ngtcp2_rtb_pkt_removals
+ *
+ */                         
+uint32_t ngtcp2_rtb_pkt_removals(ngtcp2_conn *conn){
+  return conn->packets_removed_from_rtb;
+}
+
 
 
 /*
@@ -5018,7 +5060,7 @@ static int conn_max_data_violated(ngtcp2_conn *conn, size_t datalen) {
  */
 //static int conn_recv_stream(ngtcp2_conn *conn, const ngtcp2_stream *fr) {
 //changed for project
-static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
+static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr, ngtcp2_tstamp ts) {
   int rv;
   ngtcp2_strm *strm;
   ngtcp2_idtr *idtr;
@@ -5216,6 +5258,7 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
       //handle stale frames
       if (recovered_ts < conn->current_pb_deadline){
         printf("\nstale packet detected - offsets advanced\n\n");
+        conn->stale_data += 8;
         
         //if this frame has arrived after its playback deadline but before the next playable frame has arrived, increment offset which stream will be read at
         if (fr->offset >= conn->max_delivered_to_app){
@@ -5302,11 +5345,12 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
           if (rv != 0) {
             return rv;
           }
+          conn->data_delivered_to_app += 8;
           
           //increment max_delivered_to_app only if data was actually passed to the application
           conn->max_delivered_to_app = (i + 8);
           rv = ngtcp2_rob_remove_prefix(&strm->rob, conn->max_delivered_to_app);
-                          if (rv != 0) {
+          if (rv != 0) {
             return rv;
           }
           }
@@ -5323,6 +5367,8 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr) {
 
   //fin = (strm->flags & NGTCP2_STRM_FLAG_SHUT_RD) && rx_offset == strm->last_rx_offset;
   fin = (strm->flags & NGTCP2_STRM_FLAG_SHUT_RD) && conn->max_delivered_to_app == strm->last_rx_offset;
+  
+  //printf("smoothed_rtt: %lf\n", conn->rcs.smoothed_rtt);
   
   printf("---------------------------------------------------------------------\n");
   
@@ -6150,6 +6196,7 @@ static int conn_recv_non_probing_pkt_on_new_path(ngtcp2_conn *conn,
  * NGTCP2_ERR_FINAL_OFFSET
  *     Frame has strictly larger end offset than it is permitted.
  */
+//latency measurement stuff probably here
 static ssize_t conn_recv_pkt(ngtcp2_conn *conn, const ngtcp2_path *path,
                              const uint8_t *pkt, size_t pktlen,
                              ngtcp2_tstamp ts) {
@@ -6465,7 +6512,7 @@ static ssize_t conn_recv_pkt(ngtcp2_conn *conn, const ngtcp2_path *path,
       non_probing_pkt = 1;
       break;
     case NGTCP2_FRAME_STREAM:
-      rv = conn_recv_stream(conn, &fr->stream);
+      rv = conn_recv_stream(conn, &fr->stream, ts);
       if (rv != 0) {
         return rv;
       }

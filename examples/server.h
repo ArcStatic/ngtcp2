@@ -73,6 +73,8 @@ struct Config {
   uint32_t frame_limit;
   //Increment to use to increase RTP timestamp for each tick
   uint32_t rtp_ts_increment;
+  //Number of frames to send per second
+  uint32_t frame_rate;
 };
 
 struct Buffer {
@@ -240,6 +242,7 @@ public:
   int start_rtp();
   int send_rtp(ngtcp2_conn *conn);
   int stop_rtp();
+  void output_stats();
   //END OF CUSTOM ADDED FUNCTIONS
 
   int on_key(int name, const uint8_t *secret, size_t secretlen);
@@ -261,8 +264,15 @@ public:
   uint32_t p_frames_sent_;
   //Maximum number of frames to send for this run
   uint32_t frame_limit_;
+  //Number of frames to send per second
+  //uint32_t frame_rate_;
   //Amount to increment RTP timestamp by each tick
   uint32_t rtp_ts_delta_;
+  //Number of packets removed from retransmit buffer with false ACK
+  //ie. playback deadline expired
+  uint32_t removed_pkts_from_rtb_;
+  //Number of retransmissions which occurred
+  uint32_t retransmission_count_;
   
   //TODO replace this with something better able to handle multiple streams
   uint64_t last_stream_id_;

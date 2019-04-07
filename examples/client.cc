@@ -32,6 +32,7 @@
 
 //included for project
 #include <stdio.h>
+#include <lib/ngtcp2_conn.h>
 
 #include <unistd.h>
 #include <getopt.h>
@@ -357,10 +358,17 @@ void writecb(struct ev_loop *loop, ev_io *w, int revents) {
 namespace {
 void readcb(struct ev_loop *loop, ev_io *w, int revents) {
   auto c = static_cast<Client *>(w->data);
-
+  auto conn = c->conn();
+  
   if (c->on_read() != 0) {
     return;
   }
+  
+  //increment stats for graphs
+  c->total_data_ = ngtcp2_total_data(conn);
+  c->useful_data_ = ngtcp2_total_useful_data(conn);
+  c->stale_data_ = ngtcp2_stale_data(conn);
+  
   auto rv = c->on_write();
   switch (rv) {
   case 0:
@@ -382,6 +390,12 @@ void stdin_readcb(struct ev_loop *loop, ev_io *w, int revents) {
 }
 } // namespace
 
+//Print stats at the end of experiment run
+void Client::output_stats() {
+  
+  std::cout << "Final: " << total_data_ << "," << useful_data_ << "," << stale_data_ << std::endl;
+}
+
 namespace {
 void timeoutcb(struct ev_loop *loop, ev_timer *w, int revents) {
   auto c = static_cast<Client *>(w->data);
@@ -389,7 +403,9 @@ void timeoutcb(struct ev_loop *loop, ev_timer *w, int revents) {
   if (!config.quiet) {
     std::cerr << "Timeout" << std::endl;
   }
-
+  
+  //print stats out for csv file
+  c->output_stats();
   c->disconnect();
 }
 } // namespace
@@ -1258,6 +1274,8 @@ int Client::feed_data(const sockaddr *sa, socklen_t salen, uint8_t *data,
                               util::timestamp(loop_));
     if (rv != 0) {
       std::cerr << "ngtcp2_conn_read_pkt: " << ngtcp2_strerror(rv) << std::endl;
+      //print stats out for csv file
+      output_stats();
       disconnect(rv);
       return -1;
     }
@@ -2542,6 +2560,11 @@ namespace {
 int run(Client &c, const char *addr, const char *port) {
   Address remote_addr, local_addr;
   ssize_t nwrite;
+  auto conn = c.conn();
+  
+  c.total_data_ = 0;
+  c.useful_data_ = 0;
+  c.stale_data_ = 0;
 
   auto fd = create_sock(remote_addr, addr, port);
   if (fd == -1) {
@@ -2619,7 +2642,9 @@ void config_set_default(Config &config) {
   config.data = nullptr;
   config.datalen = 0;
   config.version = NGTCP2_PROTO_VER_D17;
-  config.timeout = 30;
+  //Changed to 1s for project
+  //config.timeout = 30;
+  config.timeout = 1;
 }
 } // namespace
 

@@ -373,6 +373,15 @@ struct ngtcp2_conn {
   uint32_t recent_iframe_ts;
   //1 if I-frame is being sent, 0 if not
   uint8_t sending_iframe;
+  //Track the amount of data actually delivered to the application in bytes
+  uint32_t data_delivered_to_app;
+  //Track the amount of stale data received by the client in bytes
+  uint32_t stale_data;
+  //Track the number of retransmissions
+  uint32_t retransmission_count;
+  //Track the number of packets removed from retransmit buffer with a false ACK
+  //ie. playback deadline expired
+  uint32_t packets_removed_from_rtb;
 };
 
 /*

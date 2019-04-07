@@ -658,6 +658,7 @@ void retransmitcb(struct ev_loop *loop, ev_timer *w, int revents) {
   auto now = util::timestamp(loop);
 
   if (ngtcp2_conn_loss_detection_expiry(conn) <= now) {
+    h->retransmission_count_ += 1;
     rv = h->on_write(true);
     switch (rv) {
     case 0:
@@ -673,6 +674,7 @@ void retransmitcb(struct ev_loop *loop, ev_timer *w, int revents) {
   }
 
   if (ngtcp2_conn_ack_delay_expiry(conn) <= now) {
+    h->retransmission_count_ += 1;
     rv = h->on_write();
     switch (rv) {
     case 0:
@@ -695,9 +697,13 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
 
   auto h = static_cast<Handler *>(w->data);
   auto s = h->server();
+  auto conn = h->conn();
   //auto conn = h->conn();
   //auto now = util::timestamp(loop);
   int rv;
+  
+  //update number of packets removed from rtb
+  h->removed_pkts_from_rtb_ = ngtcp2_rtb_pkt_removals(conn);
 
   //if frame limit has been reached for this experiment, terminate the connection
   if (h->frames_sent_ == config.frame_limit){
@@ -790,7 +796,8 @@ Handler::Handler(struct ev_loop *loop, SSL_CTX *ssl_ctx, Server *server,
   //CHANGE REPEAT TO 1/50 LATER!!
   //ev_timer_init(&rtptimer_, write_rtp_cb, 1.0, 1.0);
   //trigger 1s after init, repeat every 1/50 s
-  ev_timer_init(&rtptimer_, write_rtp_cb, 1.0, (1.0/50.0));
+  //ev_timer_init(&rtptimer_, write_rtp_cb, 1.0, (1.0/50.0));
+  ev_timer_init(&rtptimer_, write_rtp_cb, 1.0, (1.0/config.frame_rate));
   rtptimer_.data = this;
 }
 
@@ -822,6 +829,11 @@ int recv_client_initial(ngtcp2_conn *conn, const ngtcp2_cid *dcid,
   
   //these need to go somewhere else - hacky fix
   h->frames_sent_ = 0;
+  h->i_frames_sent_ = 0;
+  h->p_frames_sent_ = 0;
+  h->removed_pkts_from_rtb_ = 0;
+  conn->packets_removed_from_rtb = 0;
+  h->retransmission_count_ = 0;
   
   return 0;
 }
@@ -1653,6 +1665,7 @@ int Handler::on_write(bool retransmit) {
   PathStorage path;
 
   for (;;) {
+    //timestamp introduced here
     auto n = ngtcp2_conn_write_pkt(conn_, &path.path, sendbuf_.wpos(),
                                    max_pktlen_, util::timestamp(loop_));
     if (n < 0) {
@@ -1845,6 +1858,7 @@ int Handler::send_conn_close() {
 
   //Forcibly exit after frame limit reached - print stats before this call
   server_->send_packet(remote_addr_, sendbuf_);
+  output_stats();
   exit(EXIT_SUCCESS);
   return server_->send_packet(remote_addr_, sendbuf_);
 }
@@ -2154,49 +2168,8 @@ int Handler::send_rtp(ngtcp2_conn *conn) {
     
     //std::cerr << "RTP stream written" << std::endl;
     
-    //rtp_stream->resp_state = RESP_IDLE;
-    
-    //set write event
-    //ev_feed_event(loop_, s->wev_, EV_WRITE);
-
-    //on_write_stream(*rtp_stream);
-    
     rv = on_write_stream(*rtp_stream);
-    //rv = write_stream_data(*rtp_stream, 0, rtp_stream->streambuf[rtp_stream->streambuf_idx]);
     
-    /*
-    if (rv != 0) {
-      if (rv == NETWORK_ERR_SEND_NON_FATAL) {
-        schedule_retransmit();
-        return rv;
-      }
-      return rv;
-    }
-    
-    PathStorage path;
-  
-    auto n = ngtcp2_conn_write_pkt(conn_, &path.path, sendbuf_.wpos(),
-                                   max_pktlen_, util::timestamp(loop_));
-    if (n < 0) {
-      std::cerr << "ngtcp2_conn_write_pkt: " << ngtcp2_strerror(n) << std::endl;
-      return handle_error(n);
-    }
-
-    sendbuf_.push(n);
-
-    update_remote_addr(&path.path.remote);
-
-    rv = server_->send_packet(remote_addr_, sendbuf_);
-    if (rv == NETWORK_ERR_SEND_NON_FATAL) {
-      schedule_retransmit();
-      return rv;
-    }
-    if (rv != NETWORK_ERR_OK) {
-      return rv;
-    }
-
-    schedule_retransmit(); 
-    */  
     rtp_seqnum_ += 1;
   }
   
@@ -2215,6 +2188,16 @@ int Handler::send_rtp(ngtcp2_conn *conn) {
     //send_conn_close();
   //}
   return 0;
+}
+
+void Handler::output_stats() {
+  //frames sent
+  //i-frames sent
+  //p-frames sent
+  //packets removed from rtb due to playback deadline + rtt expiring (temporarily removed due to always outputting the same value)
+  //number of retransmissions
+  //std::cout << frames_sent_ << "," << i_frames_sent_ << "," << p_frames_sent_ << "," << removed_pkts_from_rtb_  << "," << retransmission_count_ << std::endl;
+  std::cout << "Final: " << frames_sent_ << "," << i_frames_sent_ << "," << p_frames_sent_ << "," << retransmission_count_ << std::endl;
 }
 
 int Handler::stop_rtp() {
@@ -3212,6 +3195,7 @@ void config_set_default(Config &config) {
   config = Config{};
   config.tx_loss_prob = 0.;
   config.rx_loss_prob = 0.;
+  config.frame_rate = 60;
   config.rtp_ts_increment = 3000;
   config.ciphers = "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_"
                    "POLY1305_SHA256";
@@ -3287,6 +3271,7 @@ int main(int argc, char **argv) {
         {"validate-addr", no_argument, nullptr, 'V'},
         {"frame-limit", required_argument, nullptr, 'l'},
         {"rtp-increment", required_argument, nullptr, 'i'},
+        {"frame-rate", required_argument, nullptr, 'f'},
         {"ciphers", required_argument, &flag, 1},
         {"groups", required_argument, &flag, 2},
         {"timeout", required_argument, &flag, 3},
@@ -3294,7 +3279,7 @@ int main(int argc, char **argv) {
 
     auto optidx = 0;
     //auto c = getopt_long(argc, argv, "d:hqr:st:Vl", long_opts, &optidx);
-    auto c = getopt_long(argc, argv, "dl:i:hqr:st:V", long_opts, &optidx);
+    auto c = getopt_long(argc, argv, "dl:i:f:hqr:st:V", long_opts, &optidx);
     if (c == -1) {
       break;
     }
@@ -3323,6 +3308,10 @@ int main(int argc, char **argv) {
     //set amount to increment RTP timestamp by for each tick
     case 'i':
       config.rtp_ts_increment = strtoul(optarg, nullptr, 10);
+    //Added for project
+    //set number of frames to send per second
+    case 'f':
+      config.frame_rate = strtoul(optarg, nullptr, 10);
     case 'q':
       // -quiet
       config.quiet = true;
