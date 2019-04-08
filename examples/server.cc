@@ -843,7 +843,7 @@ namespace {
 int handshake_completed(ngtcp2_conn *conn, void *user_data) {
   auto h = static_cast<Handler *>(user_data);
   
-  //ngtcp2_increment_pb_deadline(h->conn(), (config.playback_frames_buffer * config.rtp_ts_increment));
+  ngtcp2_increment_pb_deadline(h->conn(), (config.playback_frames_buffer * config.rtp_ts_increment));
   h->rtp_timestamp_ = (config.playback_frames_buffer * config.rtp_ts_increment);
 
   if (!config.quiet) {

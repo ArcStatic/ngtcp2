@@ -320,7 +320,8 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
   //50fps, assume sampling rate of 8000Hz
   //c->rtp_timestamp_ += 3000;
   //c->rtp_timestamp_ += 10;
-  c->rtp_timestamp_ += 3000;
+  //c->rtp_timestamp_ += 3000;
+  //c->rtp_timestamp_ += config.rtp_ts_increment;
   
   //limit deadline increment to see if data gets emitted as expected
   //if (c->rtp_timestamp_ < 100000){
@@ -630,7 +631,7 @@ int recv_stream_data(ngtcp2_conn *conn, uint64_t stream_id, int fin,
       //buffer.emplace_back(current_byte);
     }
     
-      std::cerr << "Received item: " << recovered_seqnum << ',' << util::timestamp(c->loop_) << std::endl;
+      std::cout << "Received item: " << recovered_seqnum << ',' << util::timestamp(c->loop_) << std::endl;
       //std::cerr << "Received item: " << recovered_seqnum << std::endl;
       
       //std::cerr << "client recovered timestamp: " << recovered_ts << std::endl;
@@ -2603,7 +2604,7 @@ int run(Client &c, const char *addr, const char *port) {
   //increment playback deadline slightly to represent buffering allowance
   //incremented by 3 frames by default
   //ngtcp2_increment_pb_deadline(c.conn(), (uint32_t)12000);
-  //ngtcp2_increment_pb_deadline(c.conn(), (config.playback_frames_buffer * config.rtp_ts_increment));
+  ngtcp2_increment_pb_deadline(c.conn(), (config.playback_frames_buffer * config.rtp_ts_increment));
 
   // For 0-RTT
   auto rv = c.write_0rtt_streams();
