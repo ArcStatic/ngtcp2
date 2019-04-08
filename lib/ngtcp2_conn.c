@@ -874,17 +874,19 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
   
   //Break the retransmit buffer!
   //results in nothing being retrieved from stream by client after the first instance of packet loss
+  
   rv = ngtcp2_rtb_add(rtb, ent);
   if (rv != 0) {
     return rv;
   }
+  
   
   live_dependency = 0;
   
   //Add dependencies (ie. P-frames add RTP timestamp of corresponding I-frame)
   if (conn->sending_iframe == 0){
     ent->dependent_on = conn->recent_iframe_ts;
-    printf("Dependency added to P-frame packet\n");
+    //printf("Dependency added to P-frame packet\n");
   } else {
     //Mark I-frames with 0 as placeholder for dependencies for now
     ent->dependent_on = 0;
@@ -907,12 +909,13 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
   } else {
     conn->rcs.last_tx_pkt_ts = ent->ts;
   }
-  printf("!!PACKET SENT!!\n");
+  //printf("!!PACKET SENT!!\n");
   //Break the retransmission timer!
   //results in chunks of RTP sequence numbers being skipped because payloads are merged
   ngtcp2_conn_set_loss_detection_timer(conn);
   
   it = ngtcp2_ksl_begin(&rtb->ents);
+  
   //printf("it found\n");
   //printf("begin: %zu, len: %zu\n", it.i, ngtcp2_ksl_len(&rtb->ents));
   
@@ -995,7 +998,7 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
       //hacky workaround implemented above
       if ((&it_ent->frc->fr.type != NULL) && (it_ent->frc->fr.type == NGTCP2_FRAME_STREAM)){
       //if ((&it_ent->frc != NULL) && (&it_ent->frc->fr.type != NULL) && (it_ent->frc->fr.type == NGTCP2_FRAME_STREAM)){
-        printf("STREAM frame\n");
+        //printf("STREAM frame\n");
         
         data = it_ent->frc->fr.stream.data->base;
         recovered_ts = 0;
@@ -1023,9 +1026,9 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
           //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
         //}
         
-        printf("rtb item timestamp (conn): %u\n", recovered_ts);
-        printf("rtb item seqnum (conn): %u\n", recovered_seqnum);
-        printf("dependent_on timestamp(conn): %u\n", it_ent->dependent_on);
+        //printf("rtb item timestamp (conn): %u\n", recovered_ts);
+        //printf("rtb item seqnum (conn): %u\n", recovered_seqnum);
+        //printf("dependent_on timestamp(conn): %u\n", it_ent->dependent_on);
         
         /*
         printf("\nSend check:\n");
@@ -1041,12 +1044,14 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
         //go backwards and note which P-frame dependencies are in effect for this section
         if ((it_ent->dependent_on != 0) && (recovered_ts > conn->current_pb_deadline)){
             live_dependency = it_ent->dependent_on;
-            printf("live dependency detected (P-frame)\n");
+            //printf("live P-frame detected\n");
         }
         
         //if a frame is a P-frame and the playback deadline has expired, remove from buffer
+        //ENABLE UNRELIABLE MODE HERE
         if ((it_ent->dependent_on != 0) && (recovered_ts <= conn->current_pb_deadline)){
-          printf("stale packet detected in retransmit buffer (P-frame)\n");
+        //if(1){
+          //printf("stale packet detected in retransmit buffer (P-frame)\n");
           ngtcp2_ack ack;
           ngtcp2_tstamp ts;
           ts = conn->log.last_ts;
@@ -1074,7 +1079,7 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
             return rv;
           }
           
-          printf("Packet removed from rtb: ts %u, seqnum: %u\n", recovered_ts, recovered_seqnum);
+          //printf("Packet removed from rtb: ts %u, seqnum: %u\n", recovered_ts, recovered_seqnum);
           //live_dependency = 0;
           conn->packets_removed_from_rtb += 1;
           it = ngtcp2_ksl_begin(&rtb->ents);
@@ -1085,7 +1090,7 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
         
         //if a packet containing an I-frame has no remaining dependencies and the playback deadline has expired, remove from buffer
         if ((it_ent->dependent_on == 0) && (recovered_ts <= conn->current_pb_deadline) && (live_dependency != recovered_ts)){
-          printf("stale packet detected in retransmit buffer (I-frame)\n");
+          //printf("stale packet detected in retransmit buffer (I-frame)\n");
           ngtcp2_ack ack;
           ngtcp2_tstamp ts;
           ts = conn->log.last_ts;
@@ -1113,7 +1118,7 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
             return rv;
           }
           
-          printf("Packet removed from rtb: ts %u, seqnum: %u\n", recovered_ts, recovered_seqnum);
+          //printf("Packet removed from rtb: ts %u, seqnum: %u\n", recovered_ts, recovered_seqnum);
           //live_dependency = 0;
           conn->packets_removed_from_rtb += 1;
           it = ngtcp2_ksl_begin(&rtb->ents);
@@ -1121,7 +1126,7 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
             break;
           }
         } else if ((it_ent->dependent_on == 0) && (live_dependency != 0)){
-          printf("stale I-frame packet not removed from buffer due to dependencies\n");
+          //printf("stale I-frame packet not removed from buffer due to dependencies\n");
         }
         
         
@@ -1161,8 +1166,7 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
 //void ngtcp2_increment_pb_deadline(ngtcp2_conn *conn, uint32_t delta, uint64_t *iframe_pkts){
 void ngtcp2_increment_pb_deadline(ngtcp2_conn *conn, uint32_t delta){
   conn->current_pb_deadline += delta;
-  //conn->iframe_pkts = iframe_pkts;
-  printf("conn->current_pb_deadline: %u\n", conn->current_pb_deadline);
+  //printf("conn->current_pb_deadline: %u\n", conn->current_pb_deadline);
 }
 
 /*
@@ -5226,7 +5230,7 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr, ngtcp2_tstamp 
   recovered_ts = 0;
   recovered_seqnum = 0;
   
-  printf("---------------------------------------------------------------------\n");
+  //printf("---------------------------------------------------------------------\n");
   
   if (fr->datacnt) {
     //printf("ERROR TRACE 8\n");
@@ -5247,12 +5251,12 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr, ngtcp2_tstamp 
         recovered_seqnum += ((*(data + k)) << ((7 - k) * 8));
       }
       
-      printf("newly arrived fr timestamp (conn): %u\n", recovered_ts);
-      printf("newly arrived fr seqnum (conn): %u\n", recovered_seqnum);
+      //printf("newly arrived fr timestamp (conn): %u\n", recovered_ts);
+      //printf("newly arrived fr seqnum (conn): %u\n", recovered_seqnum);
       
       //check if a non-stale frame has arrived in time to 
       if (recovered_ts > (conn->current_pb_deadline + 3000)){
-        printf("\n\nstrm->last_rx_offset adjusted\n");
+        //printf("\n\nstrm->last_rx_offset adjusted\n");
         if (fr->offset > strm->last_rx_offset){
           strm->last_rx_offset = fr->offset;
         }
@@ -5261,7 +5265,7 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr, ngtcp2_tstamp 
       
       //handle stale frames
       if (recovered_ts < conn->current_pb_deadline){
-        printf("\nstale packet detected - offsets advanced\n\n");
+        //printf("\nstale packet detected - offsets advanced\n\n");
         conn->stale_data += 8;
         
         //if this frame has arrived after its playback deadline but before the next playable frame has arrived, increment offset which stream will be read at
@@ -5272,14 +5276,14 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr, ngtcp2_tstamp 
 
       //otherwise, add non-stale frame to reorder buffer
       } else {
-        printf("new frame added to reorder buffer\n");
+        //printf("new frame added to reorder buffer\n");
         rv = ngtcp2_strm_recv_reordering(strm, fr->data[0].base, fr->data[0].len,fr->offset);
         if (rv != 0) {
           return rv;
         }
       }
         
-      printf("starting max_delivered_to_app: %u\n", conn->max_delivered_to_app);
+      //printf("starting max_delivered_to_app: %u\n", conn->max_delivered_to_app);
       //go through all buffered data and deliver to app if frame is close to playback deadline
       //break if there's a gap
       //TODO: pass several frames to application at the same time if there's no gap
@@ -5308,8 +5312,8 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr, ngtcp2_tstamp 
           recovered_seqnum += ((d->begin[i+k]) << ((7 - k) * 8));
         }
         
-        printf("buffered item timestamp (conn): %u\n", recovered_ts);
-        printf("buffered item seqnum (conn): %u\n", recovered_seqnum);
+        //printf("buffered item timestamp (conn): %u\n", recovered_ts);
+        //printf("buffered item seqnum (conn): %u\n", recovered_seqnum);
 
         //if there is time for an absent frame to arrive, break and don't deliver data
         //only break if there is actually a gap, continue delivering data if not
@@ -5317,7 +5321,7 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr, ngtcp2_tstamp 
         //if (recovered_ts > (conn->current_pb_deadline + 3000)){
         if ((recovered_ts > (conn->current_pb_deadline + 3000)) && (i != conn->max_delivered_to_app)){
         //if (recovered_ts > (conn->current_pb_deadline + 3000)){
-          printf("break - wait for delayed data to arrive\n");
+          //printf("break - wait for delayed data to arrive\n");
           break;
         }
         
@@ -5362,7 +5366,7 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr, ngtcp2_tstamp 
       }
     }
     
-    printf("ending max_delivered_to_app: %u\n", conn->max_delivered_to_app);
+    //printf("ending max_delivered_to_app: %u\n", conn->max_delivered_to_app);
     
   } else {
     data = NULL;
@@ -5374,7 +5378,7 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr, ngtcp2_tstamp 
   
   //printf("smoothed_rtt: %lf\n", conn->rcs.smoothed_rtt);
   
-  printf("---------------------------------------------------------------------\n");
+  //printf("---------------------------------------------------------------------\n");
   
   return ngtcp2_conn_close_stream_if_shut_rdwr(conn, strm, NGTCP2_NO_ERROR);
 }

@@ -842,6 +842,9 @@ int recv_client_initial(ngtcp2_conn *conn, const ngtcp2_cid *dcid,
 namespace {
 int handshake_completed(ngtcp2_conn *conn, void *user_data) {
   auto h = static_cast<Handler *>(user_data);
+  
+  //ngtcp2_increment_pb_deadline(h->conn(), (config.playback_frames_buffer * config.rtp_ts_increment));
+  h->rtp_timestamp_ = (config.playback_frames_buffer * config.rtp_ts_increment);
 
   if (!config.quiet) {
     debug::handshake_completed(conn, user_data);
@@ -1738,8 +1741,7 @@ int Handler::write_stream_data(Stream &stream, int fin, Buffer &data) {
       case NGTCP2_ERR_STREAM_SHUT_WR:
         return 0;
       }
-      std::cerr << "ngtcp2_conn_write_stream: " << ngtcp2_strerror(n)
-                << std::endl;
+      //std::cerr << "ngtcp2_conn_write_stream: " << ngtcp2_strerror(n)<< std::endl;
       return handle_error(n);
     }
 
@@ -1864,6 +1866,7 @@ int Handler::send_conn_close() {
 }
 
 void Handler::schedule_retransmit() {
+  //retransmission_count_ += 1;
   auto expiry = std::min(ngtcp2_conn_loss_detection_expiry(conn_),
                          ngtcp2_conn_ack_delay_expiry(conn_));
   auto now = util::timestamp(loop_);
@@ -2074,8 +2077,7 @@ int Handler::start_rtp() {
   //return value
   int rv;
 
-  std::cerr << "RTP session started."
-            << std::endl;
+  //std::cerr << "RTP session started." << std::endl;
             
   uint64_t stream_id;
 
@@ -2090,7 +2092,7 @@ int Handler::start_rtp() {
     return -1;
   }
 
-  std::cerr << "The stream " << stream_id << " has opened for RTP." << std::endl;
+  //std::cerr << "The stream " << stream_id << " has opened for RTP." << std::endl;
 
   //update most recently used stream ID
   last_stream_id_ = stream_id;
@@ -2131,7 +2133,7 @@ int Handler::send_rtp(ngtcp2_conn *conn) {
   //ie. every 10th frame sent is an I-frame
   if ((frames_sent_ % 10) == 0){
     fragments = 4;
-    std::cout << "Simulated I-frame" << std::endl;
+    //std::cout << "Simulated I-frame" << std::endl;
     conn->recent_iframe_ts = rtp_timestamp_;
     conn->sending_iframe = 1;
   }
@@ -2180,7 +2182,7 @@ int Handler::send_rtp(ngtcp2_conn *conn) {
   }
   
   frames_sent_ += 1;
-  std::cout << "Frames sent: " << frames_sent_ << std::endl;
+  //std::cout << "Frames sent: " << frames_sent_ << std::endl;
   
   //if frame limit has been reached for this experiment, terminate the connection
   //if (frames_sent_ == config.frame_limit){
@@ -2356,13 +2358,12 @@ int Server::on_read() {
     }
 
     if (!config.quiet) {
-      std::cerr << "Received packet from " << util::straddr(&su.sa, addrlen)
-                << std::endl;
+      //std::cerr << "Received packet from " << util::straddr(&su.sa, addrlen) << std::endl;
     }
 
     if (debug::packet_lost(config.rx_loss_prob)) {
       if (!config.quiet) {
-        std::cerr << "** Simulated incoming packet loss **" << std::endl;
+        //std::cerr << "** Simulated incoming packet loss **" << std::endl;
       }
       return 0;
     }
@@ -2800,7 +2801,7 @@ int Server::verify_token(ngtcp2_cid *ocid, const ngtcp2_pkt_hd *hd,
 int Server::send_packet(Address &remote_addr, Buffer &buf) {
   if (debug::packet_lost(config.tx_loss_prob)) {
     //if (!config.quiet) {
-      std::cerr << "\n** Simulated outgoing packet loss **\n" << std::endl;
+      //std::cerr << "\n** Simulated outgoing packet loss **\n" << std::endl;
     //}
     buf.reset();
     return NETWORK_ERR_OK;
@@ -2832,11 +2833,13 @@ int Server::send_packet(Address &remote_addr, Buffer &buf) {
   assert(static_cast<size_t>(nwrite) == buf.size());
   buf.reset();
 
+  /*
   //if (!config.quiet) {
     std::cerr << "Sent packet to "
               << util::straddr(&remote_addr.su.sa, remote_addr.len) << " "
               << nwrite << " bytes" << std::endl;
   //}
+  */
 
   return NETWORK_ERR_OK;
 }
@@ -3197,6 +3200,7 @@ void config_set_default(Config &config) {
   config.rx_loss_prob = 0.;
   config.frame_rate = 60;
   config.rtp_ts_increment = 3000;
+  config.playback_frames_buffer = 3;
   config.ciphers = "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_"
                    "POLY1305_SHA256";
   config.groups = "P-256:X25519:P-384:P-521";
@@ -3271,6 +3275,7 @@ int main(int argc, char **argv) {
         {"validate-addr", no_argument, nullptr, 'V'},
         {"frame-limit", required_argument, nullptr, 'l'},
         {"rtp-increment", required_argument, nullptr, 'i'},
+        {"playback-buffer-allowance", required_argument, nullptr, 'b'},
         {"frame-rate", required_argument, nullptr, 'f'},
         {"ciphers", required_argument, &flag, 1},
         {"groups", required_argument, &flag, 2},
@@ -3279,7 +3284,7 @@ int main(int argc, char **argv) {
 
     auto optidx = 0;
     //auto c = getopt_long(argc, argv, "d:hqr:st:Vl", long_opts, &optidx);
-    auto c = getopt_long(argc, argv, "dl:i:f:hqr:st:V", long_opts, &optidx);
+    auto c = getopt_long(argc, argv, "dl:i:b:f:hqr:st:V", long_opts, &optidx);
     if (c == -1) {
       break;
     }
@@ -3308,6 +3313,10 @@ int main(int argc, char **argv) {
     //set amount to increment RTP timestamp by for each tick
     case 'i':
       config.rtp_ts_increment = strtoul(optarg, nullptr, 10);
+    //Added for project
+    //set number of frames to increment pb deadline by to allow for initial buffering
+    case 'b':
+      config.playback_frames_buffer = strtoul(optarg, nullptr, 10);
     //Added for project
     //set number of frames to send per second
     case 'f':
@@ -3356,7 +3365,7 @@ int main(int argc, char **argv) {
     };
   }
 
-  std::cerr << "Config frame limit: " << config.frame_limit << std::endl;
+  //std::cerr << "Config frame limit: " << config.frame_limit << std::endl;
 
   if (argc - optind < 4) {
     std::cerr << "Too few arguments" << std::endl;
@@ -3385,7 +3394,7 @@ int main(int argc, char **argv) {
     config.htdocs += '/';
   }
 
-  std::cerr << "Using document root " << config.htdocs << std::endl;
+  //std::cerr << "Using document root " << config.htdocs << std::endl;
 
   auto ssl_ctx_d = defer(SSL_CTX_free, ssl_ctx);
 

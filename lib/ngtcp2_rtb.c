@@ -214,7 +214,7 @@ static void rtb_on_pkt_lost(ngtcp2_rtb *rtb, ngtcp2_frame_chain **pfrc,
       //frame not inserted to prevent retransmission
       //!removing frame_chain_insert results in nothing being retransmitted after first instance of loss
       frame_chain_insert(pfrc, ent->frc);
-      printf("frame_chain_insert: reordering for retransmission\n");
+      //printf("frame_chain_insert: reordering for retransmission\n");
       ent->frc = NULL;
     }
   }

@@ -75,6 +75,8 @@ struct Config {
   uint32_t rtp_ts_increment;
   //Number of frames to send per second
   uint32_t frame_rate;
+  //Number of frames to increment playback deadline by initially (ie. initial buffering)
+  uint32_t playback_frames_buffer;
 };
 
 struct Buffer {

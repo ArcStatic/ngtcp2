@@ -91,6 +91,10 @@ struct Config {
   uint32_t key_update;
   // nat_rebinding is true if simulated NAT rebinding is enabled.
   bool nat_rebinding;
+  //Increment to use to increase RTP timestamp for each tick
+  uint32_t rtp_ts_increment;
+  //Number of frames to increment playback deadline by initially (ie. initial buffering)
+  uint32_t playback_frames_buffer;
 };
 
 struct Buffer {
@@ -238,6 +242,9 @@ public:
   uint32_t total_data_;
   uint32_t useful_data_;
   uint32_t stale_data_;
+  
+  //Increment to use to increase RTP timestamp for each tick
+  uint32_t rtp_ts_increment;
   
   struct ev_loop *loop_;
 

@@ -324,7 +324,8 @@ void write_rtp_cb(struct ev_loop *loop, ev_timer *w, int revents) {
   
   //limit deadline increment to see if data gets emitted as expected
   //if (c->rtp_timestamp_ < 100000){
-    ngtcp2_increment_pb_deadline(c->conn(), (uint32_t)3000);
+    //ngtcp2_increment_pb_deadline(c->conn(), (uint32_t)3000);
+    ngtcp2_increment_pb_deadline(c->conn(), config.rtp_ts_increment);
   //}
   
   //std::cerr << "RTP CALLBACK, seq: "  << (c->rtp_seqnum_) << ", ts: " << (c->rtp_timestamp_) << std::endl;
@@ -406,6 +407,8 @@ void timeoutcb(struct ev_loop *loop, ev_timer *w, int revents) {
   
   //print stats out for csv file
   c->output_stats();
+  exit(EXIT_SUCCESS);
+  
   c->disconnect();
 }
 } // namespace
@@ -605,7 +608,7 @@ int recv_stream_data(ngtcp2_conn *conn, uint64_t stream_id, int fin,
   //if (!config.quiet) {
     //need to change this to parse RTP headers
     //stream data muted for project
-    debug::print_stream_data(stream_id, data, datalen);   
+    //debug::print_stream_data(stream_id, data, datalen);   
     
     uint32_t recovered_ts = 0;
     uint32_t recovered_seqnum = 0;
@@ -630,8 +633,8 @@ int recv_stream_data(ngtcp2_conn *conn, uint64_t stream_id, int fin,
       std::cerr << "Received item: " << recovered_seqnum << ',' << util::timestamp(c->loop_) << std::endl;
       //std::cerr << "Received item: " << recovered_seqnum << std::endl;
       
-      std::cerr << "client recovered timestamp: " << recovered_ts << std::endl;
-      std::cerr << "client recovered sequence number: " << recovered_seqnum << std::endl;
+      //std::cerr << "client recovered timestamp: " << recovered_ts << std::endl;
+      //std::cerr << "client recovered sequence number: " << recovered_seqnum << std::endl;
   //}
   
   ngtcp2_conn_extend_max_stream_offset(conn, stream_id, datalen);
@@ -1278,7 +1281,7 @@ int Client::feed_data(const sockaddr *sa, socklen_t salen, uint8_t *data,
     rv = ngtcp2_conn_read_pkt(conn_, &path, data, datalen,
                               util::timestamp(loop_));
     if (rv != 0) {
-      std::cerr << "ngtcp2_conn_read_pkt: " << ngtcp2_strerror(rv) << std::endl;
+      //std::cerr << "ngtcp2_conn_read_pkt: " << ngtcp2_strerror(rv) << std::endl;
       //print stats out for csv file
       output_stats();
       disconnect(rv);
@@ -1382,13 +1385,12 @@ int Client::on_read() {
     }
 
     if (!config.quiet) {
-      std::cerr << "Received packet from " << util::straddr(&su.sa, addrlen)
-                << std::endl;
+      //std::cerr << "Received packet from " << util::straddr(&su.sa, addrlen)<< std::endl;
     }
 
     if (debug::packet_lost(config.rx_loss_prob)) {
       if (!config.quiet) {
-        std::cerr << "** Simulated incoming packet loss **" << std::endl;
+        //std::cerr << "** Simulated incoming packet loss **" << std::endl;
       }
       break;
     }
@@ -1431,7 +1433,7 @@ int Client::on_write(bool retransmit) {
 
   if (!ngtcp2_conn_get_handshake_completed(conn_)) {
     auto rv = do_handshake(nullptr, 0);
-    std::cerr << "handshake completed" << std::endl;
+    //std::cerr << "handshake completed" << std::endl;
     schedule_retransmit();
     return rv;
   }
@@ -1975,7 +1977,7 @@ int Client::send_packet() {
   //std::cerr << "send_packet" << std::endl;
   if (debug::packet_lost(config.tx_loss_prob)) {
     if (!config.quiet) {
-      std::cerr << "** Simulated outgoing packet loss **" << std::endl;
+      //std::cerr << "** Simulated outgoing packet loss **" << std::endl;
     }
     sendbuf_.reset();
     return NETWORK_ERR_OK;
@@ -2005,9 +2007,11 @@ int Client::send_packet() {
   sendbuf_.reset();
 
   if (!config.quiet) {
+    /*
     std::cerr << "Sent packet to "
               << util::straddr(&remote_addr_.su.sa, remote_addr_.len) << " "
               << nwrite << " bytes" << std::endl;
+    */
   }
 
   return NETWORK_ERR_OK;
@@ -2096,8 +2100,7 @@ int Client::start_rtp() {
   //return value
   int rv;
 
-  std::cerr << "RTP session started."
-            << std::endl;
+  //std::cerr << "RTP session started." << std::endl;
             
   uint64_t stream_id;
 
@@ -2112,7 +2115,7 @@ int Client::start_rtp() {
     return -1;
   }
 
-  std::cerr << "The stream " << stream_id << " has opened for RTP." << std::endl;
+  //std::cerr << "The stream " << stream_id << " has opened for RTP." << std::endl;
 
   //update most recently used stream ID
   last_stream_id_ = stream_id;
@@ -2132,7 +2135,7 @@ int Client::start_rtp() {
 }
 
 int Client::send_rtp() {
-  std::cerr << "RTP function started" << std::endl;
+  //std::cerr << "RTP function started" << std::endl;
   //std::cerr << "last_steam_id = " << last_stream_id_ << std::endl;
   //std::cerr << "streams_ size = " << streams_.size() << std::endl;
   ssize_t nread;
@@ -2169,7 +2172,7 @@ int Client::stop_rtp() {
     stream->streambuf.emplace_back();
   }
 
-  std::cerr << "RTP session has ended." << std::endl;
+  //std::cerr << "RTP session has ended." << std::endl;
 
   ev_feed_event(loop_, &wev_, EV_WRITE);
 
@@ -2597,8 +2600,10 @@ int run(Client &c, const char *addr, const char *port) {
     }
   }
   
-  //increment playabck deadline ahread of serever slightly to test if redordering happens
+  //increment playback deadline slightly to represent buffering allowance
+  //incremented by 3 frames by default
   //ngtcp2_increment_pb_deadline(c.conn(), (uint32_t)12000);
+  //ngtcp2_increment_pb_deadline(c.conn(), (config.playback_frames_buffer * config.rtp_ts_increment));
 
   // For 0-RTT
   auto rv = c.write_0rtt_streams();
@@ -2640,6 +2645,8 @@ void config_set_default(Config &config) {
   config.tx_loss_prob = 0.;
   config.rx_loss_prob = 0.;
   config.fd = -1;
+  config.rtp_ts_increment = 3000;
+  config.playback_frames_buffer = 3;
   config.ciphers = "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_"
                    "POLY1305_SHA256";
   config.groups = "P-256:X25519:P-384:P-521";
@@ -2725,8 +2732,10 @@ int main(int argc, char **argv) {
         {"nstreams", required_argument, nullptr, 'n'},
         {"version", required_argument, nullptr, 'v'},
         //
-        //CUSTOM ADDED ARG
-        {"rtp", no_argument, nullptr, 'e'},
+        //CUSTOM ADDED ARGS
+        {"rtp-mode", no_argument, nullptr, 'e'},
+        {"rtp-increment", required_argument, nullptr, 'a'},
+        {"playback-buffer-allowance", required_argument, nullptr, 'b'},
         //
         {"quiet", no_argument, nullptr, 'q'},
         {"show-secret", no_argument, nullptr, 's'},
@@ -2739,7 +2748,7 @@ int main(int argc, char **argv) {
     };
 
     auto optidx = 0;
-    auto c = getopt_long(argc, argv, "d:hin:eqr:st:v:", long_opts, &optidx);
+    auto c = getopt_long(argc, argv, "d:hin:a:b:eqr:st:v:", long_opts, &optidx);
     if (c == -1) {
       break;
     }
@@ -2756,6 +2765,14 @@ int main(int argc, char **argv) {
       // --streams
       config.nstreams = strtol(optarg, nullptr, 10);
       break;
+    //Added for project
+    //set amount to increment RTP timestamp by for each tick
+    case 'a':
+      config.rtp_ts_increment = strtoul(optarg, nullptr, 10);
+    //Added for project
+    //set number of frames to increment pb deadline by to allow for initial buffering
+    case 'b':
+      config.playback_frames_buffer = strtoul(optarg, nullptr, 10);
     case 'q':
       // -quiet
       config.quiet = true;
