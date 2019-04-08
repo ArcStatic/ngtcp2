@@ -600,14 +600,15 @@ int recv_stream_data(ngtcp2_conn *conn, uint64_t stream_id, int fin,
                      uint64_t offset, const uint8_t *data, size_t datalen,
                      void *user_data, void *stream_user_data) {
   //std::cerr << "recv stream data" << std::endl;
+  auto c = static_cast<Client *>(user_data);
   
   //if (!config.quiet) {
     //need to change this to parse RTP headers
     //stream data muted for project
     debug::print_stream_data(stream_id, data, datalen);   
-      
+    
     uint32_t recovered_ts = 0;
-    uint32_t recovered_seqnum = 0; 
+    uint32_t recovered_seqnum = 0;
   
     //recover RTP timestamp from payload 
     for (int i = 0; i < 4; i++){
@@ -625,6 +626,10 @@ int recv_stream_data(ngtcp2_conn *conn, uint64_t stream_id, int fin,
       //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
       //buffer.emplace_back(current_byte);
     }
+    
+      std::cerr << "Received item: " << recovered_seqnum << ',' << util::timestamp(c->loop_) << std::endl;
+      //std::cerr << "Received item: " << recovered_seqnum << std::endl;
+      
       std::cerr << "client recovered timestamp: " << recovered_ts << std::endl;
       std::cerr << "client recovered sequence number: " << recovered_seqnum << std::endl;
   //}

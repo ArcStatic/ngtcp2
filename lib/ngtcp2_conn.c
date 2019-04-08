@@ -960,17 +960,21 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
         //current_byte = (rtp_seqnum_ >> ((3 - i) * 8));
       //}
       
-      printf("sent item timestamp (conn): %u\n", recovered_ts);
-      printf("sent item seqnum (conn): %u\n", recovered_seqnum);
+      //printf("sent item timestamp (conn): %u\n", recovered_ts);
+      //printf("sent item seqnum (conn): %u\n", recovered_seqnum);
       //printf("sent dependent_on timestamp(conn): %u\n", dependent_on_ts);
-      printf("ent->dependent_on: %u\n", ent->dependent_on);
+      //printf("ent->dependent_on: %u\n", ent->dependent_on);
+      
       //end of send debugging
+      
+      //RTP seqnum and QUIC timestamp of send packet - used to calculate latency for graphs
+      printf("sent item: %u, %lu\n", recovered_seqnum, ent->ts);
     }
     
     for (; !ngtcp2_ksl_it_end(&it); ngtcp2_ksl_it_next(&it)) {
       it_ent = ngtcp2_ksl_it_get(&it);
       
-      printf("on_send for loop entered\n");
+      //printf("on_send for loop entered\n");
       /*
       printf("it_ent found: %p\n", &it_ent);
       printf("it_ent->frc found: %p\n", &it_ent->frc);
@@ -1144,7 +1148,7 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
     //end of cleanup section
   //}
   
-  printf("smoothed_rtt: %lf\n", conn->rcs.smoothed_rtt);
+  //printf("smoothed_rtt: %lf\n", conn->rcs.smoothed_rtt);
   
   return 0;
 }

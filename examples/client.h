@@ -238,6 +238,8 @@ public:
   uint32_t total_data_;
   uint32_t useful_data_;
   uint32_t stale_data_;
+  
+  struct ev_loop *loop_;
 
 
 private:
@@ -253,7 +255,7 @@ private:
   ev_timer change_local_addr_timer_;
   ev_timer key_update_timer_;
   ev_signal sigintev_;
-  struct ev_loop *loop_;
+  //struct ev_loop *loop_;
   SSL_CTX *ssl_ctx_;
   SSL *ssl_;
   int fd_;
