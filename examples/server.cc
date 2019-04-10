@@ -843,7 +843,7 @@ namespace {
 int handshake_completed(ngtcp2_conn *conn, void *user_data) {
   auto h = static_cast<Handler *>(user_data);
   
-  ngtcp2_increment_pb_deadline(h->conn(), (config.playback_frames_buffer * config.rtp_ts_increment));
+  //ngtcp2_increment_pb_deadline(h->conn(), (config.playback_frames_buffer * config.rtp_ts_increment));
   h->rtp_timestamp_ = (config.playback_frames_buffer * config.rtp_ts_increment);
 
   if (!config.quiet) {
@@ -1669,8 +1669,10 @@ int Handler::on_write(bool retransmit) {
 
   for (;;) {
     //timestamp introduced here
-    auto n = ngtcp2_conn_write_pkt(conn_, &path.path, sendbuf_.wpos(),
-                                   max_pktlen_, util::timestamp(loop_));
+    //auto n = ngtcp2_conn_write_pkt(conn_, &path.path, sendbuf_.wpos(), max_pktlen_, util::timestamp(loop_));
+    //change made here to prevent RTP frames being merged together in retransmits
+    //was previously combining them as a single payload
+    auto n = ngtcp2_conn_write_pkt(conn_, &path.path, sendbuf_.wpos(), 48, util::timestamp(loop_));
     if (n < 0) {
       std::cerr << "ngtcp2_conn_write_pkt: " << ngtcp2_strerror(n) << std::endl;
       return handle_error(n);

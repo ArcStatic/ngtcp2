@@ -972,6 +972,7 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
       
       //RTP seqnum and QUIC timestamp of send packet - used to calculate latency for graphs
       printf("sent item: %u, %lu\n", recovered_seqnum, ent->ts);
+      printf("sent pktlen: %zu\n", ent->pktlen);
     }
     
     for (; !ngtcp2_ksl_it_end(&it); ngtcp2_ksl_it_next(&it)) {
@@ -5253,6 +5254,7 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr, ngtcp2_tstamp 
       
       //printf("newly arrived fr timestamp (conn): %u\n", recovered_ts);
       //printf("newly arrived fr seqnum (conn): %u\n", recovered_seqnum);
+      printf("Stack rx ts: %u,%lu\n", recovered_seqnum, ts);
       
       //check if a non-stale frame has arrived in time to 
       if (recovered_ts > (conn->current_pb_deadline + 3000)){
@@ -5319,7 +5321,8 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr, ngtcp2_tstamp 
         //only break if there is actually a gap, continue delivering data if not
         //if ((recovered_ts > (conn->current_pb_deadline + 3000)) && (i != conn->max_delivered_to_app) && (recovered_ts - conn->current_pb_deadline < 100000)){
         //if (recovered_ts > (conn->current_pb_deadline + 3000)){
-        if ((recovered_ts > (conn->current_pb_deadline + 3000)) && (i != conn->max_delivered_to_app)){
+        if ((recovered_ts > (conn->current_pb_deadline + 2000)) && (i != conn->max_delivered_to_app)){
+        //if (i != conn->max_delivered_to_app){
         //if (recovered_ts > (conn->current_pb_deadline + 3000)){
           //printf("break - wait for delayed data to arrive\n");
           break;
