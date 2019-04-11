@@ -166,7 +166,8 @@ plt.legend()
 plt.xlim(0, 3)
 plt.ylim(0, 0.5)
 
-plt.show()
+#plt.show()
+plt.savefig('foo.pdf')
 
 
 
