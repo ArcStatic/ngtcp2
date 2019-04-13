@@ -153,7 +153,7 @@ x = time_axis_data_app
 #y = y0.copy() + 2.5
 y = app_latencies
 
-plt.step(x, y, label='App latency')
+plt.step(x, y, label='Latency between sending data and receiving application data (reliable)s')
 
 #y -= 0.5
 #plt.step(x, y, where='post', label='post')
@@ -163,11 +163,11 @@ plt.step(x, y, label='App latency')
 
 plt.legend()
 
-plt.xlim(0, 3)
-plt.ylim(0, 0.5)
+plt.xlim(0, 30000)
+plt.ylim(0, 10)
 
 #plt.show()
-plt.savefig('foo.pdf')
+plt.savefig('app_latency/%s.pdf' % sys.argv[1][:-4])
 
 
 

@@ -72,7 +72,9 @@ int ngtcp2_strm_init(ngtcp2_strm *strm, uint64_t stream_id, uint32_t flags,
     goto fail_gaptr_init;
   }
 
-  rv = ngtcp2_rob_init(&strm->rob, 8 * 1024, mem);
+  //rv = ngtcp2_rob_init(&strm->rob, 8 * 1024, mem);
+  //TODO: this hardcoded evil must be corrected.
+  rv = ngtcp2_rob_init(&strm->rob, 8 * 50000, mem);
   if (rv != 0) {
     goto fail_rob_init;
   }

@@ -34,7 +34,9 @@
 
 int ngtcp2_rob_gap_new(ngtcp2_rob_gap **pg, uint64_t begin, uint64_t end,
                        ngtcp2_mem *mem) {
-  *pg = ngtcp2_mem_malloc(mem, sizeof(ngtcp2_rob_gap));
+  //*pg = ngtcp2_mem_malloc(mem, sizeof(ngtcp2_rob_gap));
+  //check there is no garbage data
+  *pg = ngtcp2_mem_calloc(mem, 1, sizeof(ngtcp2_rob_gap));
   if (*pg == NULL) {
     return NGTCP2_ERR_NOMEM;
   }
