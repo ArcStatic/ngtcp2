@@ -1048,11 +1048,29 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
             //printf("live P-frame detected\n");
         }
         
+        
+        uint32_t rtp_ts_latency;
+        uint32_t buffer_amount;
+        //estimate what playback deadline will be at receiver by the time packet arrives
+        //about 9000 (ie. 3 frames)
+        rtp_ts_latency = (3000 * (50/(1000/60)));
+        //ie. number of frames the client is ahead by
+        buffer_amount = (3000 * 3);
+        buffer_amount = (3000 * 10);
+        //rtp_ts_latency = ((3000 * (50/(1000/60))) + 3000);
+        printf("Current pb_deadline: %u\n", conn->current_pb_deadline);
+        printf("Predicted pb_deadline on arrival for sn %u, ts %u: %u\n", recovered_seqnum, recovered_ts, (conn->current_pb_deadline + rtp_ts_latency));
+        
+        
         //if a frame is a P-frame and the playback deadline has expired, remove from buffer
         //ENABLE UNRELIABLE MODE HERE
-        if ((it_ent->dependent_on != 0) && (recovered_ts <= conn->current_pb_deadline)){
+        //if ((it_ent->dependent_on != 0) && (recovered_ts <= conn->current_pb_deadline)){
+        //if ((it_ent->dependent_on != 0) && (recovered_ts <= (conn->current_pb_deadline + rtp_ts_latency))){
+        //if ((it_ent->dependent_on != 0) && ((recovered_ts + rtp_ts_latency) <= (conn->current_pb_deadline + rtp_ts_latency + buffer_amount))){
+        if ((it_ent->dependent_on != 0) && ((recovered_ts + rtp_ts_latency + buffer_amount) <= (conn->current_pb_deadline + rtp_ts_latency))){
         //if(1){
-          //printf("stale packet detected in retransmit buffer (P-frame)\n");
+          printf("stale packet detected in retransmit buffer (P-frame)\n");
+          printf("%u, %u\n", (recovered_ts + rtp_ts_latency), (conn->current_pb_deadline + rtp_ts_latency + buffer_amount));
           ngtcp2_ack ack;
           ngtcp2_tstamp ts;
           ts = conn->log.last_ts;
@@ -5223,7 +5241,10 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr, ngtcp2_tstamp 
   //TODO: modify this section to look for I-frames and supply them if P-frames go missing
   ngtcp2_psl_it it;
   uint32_t recovered_ts = 0;
-  uint32_t recovered_seqnum = 0; 
+  uint32_t recovered_seqnum = 0;
+   
+  uint32_t stack_output_recovered_ts = 0;
+  uint32_t stack_output_recovered_seqnum = 0; 
 
   const uint8_t *data;
   int fin;
@@ -5232,29 +5253,42 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr, ngtcp2_tstamp 
   recovered_seqnum = 0;
   
   //printf("---------------------------------------------------------------------\n");
+  printf("length of data received: %zu\n", fr->data->len);
   
   if (fr->datacnt) {
     //printf("ERROR TRACE 8\n");
     //data = fr->data[0].base + ncut;
     data = fr->data[0].base;
     //datalen -= ncut;
-
-      //check frame on arrival
-      //recover RTP timestamp from payload 
-      for (int k = 0; k < 4; k++){
-        //32-bit, big-endian
-        recovered_ts += ((*(data + k)) << ((3 - k) * 8));
-      }
       
-      //recover RTP sequence number from payload 
-      for (int k = 4; k < 8; k++){
-        //32-bit, big-endian
-        recovered_seqnum += ((*(data + k)) << ((7 - k) * 8));
+      for (int z = 0; z < fr->data->len; z += 8){
+        //check frame on arrival
+        //recover RTP timestamp from payload 
+        for (int k = 0; k < 4; k++){
+          //32-bit, big-endian
+          //recovered_ts += ((*(data + k)) << ((3 - k) * 8));
+          stack_output_recovered_ts += ((*(data + k + z)) << ((3 - k) * 8));
+        }
+        
+        //recover RTP sequence number from payload 
+        for (int k = 4; k < 8; k++){
+          //32-bit, big-endian
+          //recovered_seqnum += ((*(data + k)) << ((7 - k) * 8));
+          stack_output_recovered_seqnum += ((*(data + k + z)) << ((7 - k) * 8));
+        }
+        
+        //printf("newly arrived fr timestamp (conn): %u\n", recovered_ts);
+        //printf("newly arrived fr seqnum (conn): %u\n", recovered_seqnum);
+        printf("Current pb_deadline: %u\n", conn->current_pb_deadline);
+        printf("Stack rx ts: %u,%lu\n", stack_output_recovered_seqnum, ts);
+        
+        if (z == 0){
+            recovered_seqnum = stack_output_recovered_seqnum; 
+            recovered_ts = stack_output_recovered_ts;
+        }
+        stack_output_recovered_ts = 0;
+        stack_output_recovered_seqnum = 0;
       }
-      
-      //printf("newly arrived fr timestamp (conn): %u\n", recovered_ts);
-      //printf("newly arrived fr seqnum (conn): %u\n", recovered_seqnum);
-      printf("Stack rx ts: %u,%lu\n", recovered_seqnum, ts);
       
       //check if a non-stale frame has arrived in time to 
       if (recovered_ts > (conn->current_pb_deadline + 3000)){
@@ -5267,7 +5301,7 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr, ngtcp2_tstamp 
       
       //handle stale frames
       if (recovered_ts < conn->current_pb_deadline){
-        //printf("\nstale packet detected - offsets advanced\n\n");
+        printf("stale packet detected\n");
         conn->stale_data += 8;
         
         //if this frame has arrived after its playback deadline but before the next playable frame has arrived, increment offset which stream will be read at
@@ -5321,7 +5355,7 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr, ngtcp2_tstamp 
         //only break if there is actually a gap, continue delivering data if not
         //if ((recovered_ts > (conn->current_pb_deadline + 3000)) && (i != conn->max_delivered_to_app) && (recovered_ts - conn->current_pb_deadline < 100000)){
         //if (recovered_ts > (conn->current_pb_deadline + 3000)){
-        if ((recovered_ts > (conn->current_pb_deadline + 2000)) && (i != conn->max_delivered_to_app)){
+        if ((recovered_ts > (conn->current_pb_deadline + 3000)) && (i != conn->max_delivered_to_app)){
         //if (i != conn->max_delivered_to_app){
         //if (recovered_ts > (conn->current_pb_deadline + 3000)){
           //printf("break - wait for delayed data to arrive\n");
@@ -5367,6 +5401,7 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr, ngtcp2_tstamp 
           }
         }
       }
+    
     }
     
     //printf("ending max_delivered_to_app: %u\n", conn->max_delivered_to_app);

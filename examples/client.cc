@@ -2604,7 +2604,8 @@ int run(Client &c, const char *addr, const char *port) {
   //increment playback deadline slightly to represent buffering allowance
   //incremented by 3 frames by default
   //ngtcp2_increment_pb_deadline(c.conn(), (uint32_t)12000);
-  ngtcp2_increment_pb_deadline(c.conn(), (config.playback_frames_buffer * config.rtp_ts_increment));
+  //ngtcp2_increment_pb_deadline(c.conn(), (config.playback_frames_buffer * config.rtp_ts_increment));
+  ngtcp2_increment_pb_deadline(c.conn(), (3 * config.rtp_ts_increment));
 
   // For 0-RTT
   auto rv = c.write_0rtt_streams();
