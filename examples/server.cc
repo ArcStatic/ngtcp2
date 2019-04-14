@@ -844,8 +844,9 @@ int handshake_completed(ngtcp2_conn *conn, void *user_data) {
   auto h = static_cast<Handler *>(user_data);
   
   //ngtcp2_increment_pb_deadline(h->conn(), (config.playback_frames_buffer * config.rtp_ts_increment));
-  ngtcp2_increment_pb_deadline(h->conn(), (3 * config.rtp_ts_increment));
-  h->rtp_timestamp_ = (3 * config.rtp_ts_increment);
+  //ngtcp2_increment_pb_deadline(h->conn(), (3 * config.rtp_ts_increment));
+  //h->rtp_timestamp_ = (3 * config.rtp_ts_increment);
+  h->rtp_timestamp_ = (10 * config.rtp_ts_increment);
   //h->rtp_timestamp_ = (config.playback_frames_buffer * config.rtp_ts_increment);
   //std::cerr << "config.playback_frames_buffer: " << config.playback_frames_buffer << "config.rtp_ts_increment" << config.rtp_ts_increment << std::endl;
 

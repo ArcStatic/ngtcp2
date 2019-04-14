@@ -972,6 +972,7 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
       
       //RTP seqnum and QUIC timestamp of send packet - used to calculate latency for graphs
       printf("sent item: %u, %lu\n", recovered_seqnum, ent->ts);
+      printf("rtp_ts: %u\n", recovered_ts);
       printf("sent pktlen: %zu\n", ent->pktlen);
     }
     
@@ -1051,15 +1052,17 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
         
         uint32_t rtp_ts_latency;
         uint32_t buffer_amount;
+        uint32_t estimated_client_pb_deadline;
         //estimate what playback deadline will be at receiver by the time packet arrives
         //about 9000 (ie. 3 frames)
         rtp_ts_latency = (3000 * (50/(1000/60)));
         //ie. number of frames the client is ahead by
         buffer_amount = (3000 * 3);
-        buffer_amount = (3000 * 10);
+        //buffer_amount = (3000 * 10);
+        estimated_client_pb_deadline = recovered_ts + rtp_ts_latency + buffer_amount;
         //rtp_ts_latency = ((3000 * (50/(1000/60))) + 3000);
         printf("Current pb_deadline: %u\n", conn->current_pb_deadline);
-        printf("Predicted pb_deadline on arrival for sn %u, ts %u: %u\n", recovered_seqnum, recovered_ts, (conn->current_pb_deadline + rtp_ts_latency));
+        printf("Predicted pb_deadline on arrival for sn %u, ts %u: %u\n", recovered_seqnum, recovered_ts, estimated_client_pb_deadline);
         
         
         //if a frame is a P-frame and the playback deadline has expired, remove from buffer
@@ -1067,9 +1070,10 @@ static int conn_on_pkt_sent(ngtcp2_conn *conn, ngtcp2_rtb *rtb,
         //if ((it_ent->dependent_on != 0) && (recovered_ts <= conn->current_pb_deadline)){
         //if ((it_ent->dependent_on != 0) && (recovered_ts <= (conn->current_pb_deadline + rtp_ts_latency))){
         //if ((it_ent->dependent_on != 0) && ((recovered_ts + rtp_ts_latency) <= (conn->current_pb_deadline + rtp_ts_latency + buffer_amount))){
-        if ((it_ent->dependent_on != 0) && ((recovered_ts + rtp_ts_latency + buffer_amount) <= (conn->current_pb_deadline + rtp_ts_latency))){
+        //if ((it_ent->dependent_on != 0) && ((recovered_ts + rtp_ts_latency + buffer_amount) <= (conn->current_pb_deadline + rtp_ts_latency))){
+        if ((it_ent->dependent_on != 0) && (estimated_client_pb_deadline <= (recovered_ts + rtp_ts_latency))){
         //if(1){
-          printf("stale packet detected in retransmit buffer (P-frame)\n");
+          //printf("stale packet detected in retransmit buffer (P-frame)\n");
           printf("%u, %u\n", (recovered_ts + rtp_ts_latency), (conn->current_pb_deadline + rtp_ts_latency + buffer_amount));
           ngtcp2_ack ack;
           ngtcp2_tstamp ts;
@@ -5279,7 +5283,7 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr, ngtcp2_tstamp 
         
         //printf("newly arrived fr timestamp (conn): %u\n", recovered_ts);
         //printf("newly arrived fr seqnum (conn): %u\n", recovered_seqnum);
-        printf("Current pb_deadline: %u\n", conn->current_pb_deadline);
+        printf("Current pb_deadline: %u, recovered_ts: %d\n", conn->current_pb_deadline, stack_output_recovered_ts);
         printf("Stack rx ts: %u,%lu\n", stack_output_recovered_seqnum, ts);
         
         if (z == 0){
@@ -5355,7 +5359,8 @@ static int conn_recv_stream(ngtcp2_conn *conn, ngtcp2_stream *fr, ngtcp2_tstamp 
         //only break if there is actually a gap, continue delivering data if not
         //if ((recovered_ts > (conn->current_pb_deadline + 3000)) && (i != conn->max_delivered_to_app) && (recovered_ts - conn->current_pb_deadline < 100000)){
         //if (recovered_ts > (conn->current_pb_deadline + 3000)){
-        if ((recovered_ts > (conn->current_pb_deadline + 3000)) && (i != conn->max_delivered_to_app)){
+        //if ((recovered_ts > (conn->current_pb_deadline + 3000)) && (i != conn->max_delivered_to_app)){
+        if ((recovered_ts > (conn->current_pb_deadline + 9000)) && (i != conn->max_delivered_to_app)){
         //if (i != conn->max_delivered_to_app){
         //if (recovered_ts > (conn->current_pb_deadline + 3000)){
           //printf("break - wait for delayed data to arrive\n");
